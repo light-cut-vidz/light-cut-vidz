@@ -1,0 +1,210 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create draft release
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --draft \
+            --title "${{ github.ref_name }}" \
+            --notes "Release ${{ github.ref_name }}" \
+            --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-mac:
+    name: Build macOS DMG (${{ matrix.arch }})
+    needs: [create-release]
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync version from tag
+        run: |
+          VERSION_NUM="${GITHUB_REF_NAME#v}"
+          npm version "$VERSION_NUM" --no-git-tag-version || true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+        env:
+          npm_config_arch: ${{ matrix.arch }}
+
+      - name: Install ffprobe darwin-x64 (cross-compile workaround)
+        if: matrix.arch == 'x64'
+        run: |
+          TARBALL=$(curl -sf https://registry.npmjs.org/@ffprobe-installer/darwin-x64/latest | python3 -c "import sys,json;print(json.load(sys.stdin)['dist']['tarball'])")
+          mkdir -p node_modules/@ffprobe-installer/darwin-x64
+          curl -sL "$TARBALL" | tar xz --strip-components=1 -C node_modules/@ffprobe-installer/darwin-x64
+
+      - name: Check code signing availability
+        id: csc
+        run: echo "enabled=$( [ -n "$VAL" ] && echo true || echo false )" >> $GITHUB_OUTPUT
+        env:
+          VAL: ${{ secrets.CSC_LINK }}
+
+      - name: Configure code signing
+        if: steps.csc.outputs.enabled == 'true'
+        run: |
+          echo "CSC_LINK=${{ secrets.CSC_LINK }}" >> $GITHUB_ENV
+          echo "CSC_KEY_PASSWORD=${{ secrets.CSC_KEY_PASSWORD }}" >> $GITHUB_ENV
+          echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> $GITHUB_ENV
+          echo "APPLE_APP_SPECIFIC_PASSWORD=${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" >> $GITHUB_ENV
+          echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> $GITHUB_ENV
+
+      - name: Build DMG (${{ matrix.arch }})
+        run: npm run vite:build && npx electron-builder --mac dmg --${{ matrix.arch }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.csc.outputs.enabled }}
+
+      - name: Upload DMG to GitHub Release
+        run: gh release upload "${{ github.ref_name }}" dist-app/LightCutVidz-mac-${{ matrix.arch }}.dmg --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-linux:
+    name: Build Linux AppImage + deb + snap
+    needs: [create-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync version from tag
+        run: |
+          VERSION_NUM="${GITHUB_REF_NAME#v}"
+          npm version "$VERSION_NUM" --no-git-tag-version || true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Install Linux build deps
+        run: sudo apt-get install -y rpm
+
+      - name: Build AppImage and deb
+        run: npm run vite:build && npx electron-builder --linux AppImage deb --publish never
+
+      - name: Upload AppImage, deb, and update metadata to GitHub Release
+        run: |
+          gh release upload "${{ github.ref_name }}" dist-app/LightCutVidz-linux.AppImage --clobber
+          gh release upload "${{ github.ref_name }}" dist-app/LightCutVidz-linux.deb --clobber
+          gh release upload "${{ github.ref_name }}" dist-app/latest-linux.yml --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install snapcraft
+        id: snapcraft-install
+        run: sudo snap install snapcraft --classic
+        continue-on-error: true
+
+      - name: Build snap
+        id: snap-build
+        if: steps.snapcraft-install.outcome == 'success'
+        run: npx electron-builder --linux snap --publish never
+        continue-on-error: true
+        env:
+          SNAPCRAFT_BUILD_ENVIRONMENT: host
+
+      - name: Find built snap file
+        id: snap-file
+        if: steps.snapcraft-install.outcome == 'success'
+        run: |
+          SNAP_PATH=$(ls dist-app/*.snap 2>/dev/null | head -1)
+          if [ -z "$SNAP_PATH" ]; then
+            echo "found=false" >> $GITHUB_OUTPUT
+          else
+            echo "found=true" >> $GITHUB_OUTPUT
+            echo "path=$SNAP_PATH" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload snap to GitHub Release
+        if: steps.snap-file.outputs.found == 'true'
+        run: gh release upload "${{ github.ref_name }}" "${{ steps.snap-file.outputs.path }}" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to Snap Store
+        if: steps.snap-file.outputs.found == 'true'
+        run: snapcraft upload "${{ steps.snap-file.outputs.path }}" --release stable
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [release-mac, release-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark release as latest
+        run: gh release edit "${{ github.ref_name }}" --draft=false --latest --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew-tap:
+    name: Update Homebrew Tap
+    needs: [publish-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Homebrew tap token
+        id: tap-token
+        run: echo "enabled=$( [ -n "$VAL" ] && echo true || echo false )" >> $GITHUB_OUTPUT
+        env:
+          VAL: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - uses: actions/checkout@v4
+
+      - name: Compute DMG hashes and update cask
+        if: steps.tap-token.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION_NUM=${VERSION#v}
+          ARM64_URL="https://github.com/light-cut-vidz/light-cut-vidz/releases/download/${VERSION}/LightCutVidz-mac-arm64.dmg"
+          X64_URL="https://github.com/light-cut-vidz/light-cut-vidz/releases/download/${VERSION}/LightCutVidz-mac-x64.dmg"
+
+          curl -fsSL -o arm64.dmg "$ARM64_URL"
+          curl -fsSL -o x64.dmg "$X64_URL"
+
+          SHA256_ARM64=$(sha256sum arm64.dmg | awk '{print $1}')
+          SHA256_X64=$(sha256sum x64.dmg | awk '{print $1}')
+
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/light-cut-vidz/homebrew-tap.git"
+          mkdir -p homebrew-tap/Casks
+
+          sed \
+            -e "s/VERSION_NUM/${VERSION_NUM}/g" \
+            -e "s/SHA256_ARM64/${SHA256_ARM64}/g" \
+            -e "s/SHA256_X64/${SHA256_X64}/g" \
+            .github/homebrew/lightcutvidz.rb.tmpl \
+            > homebrew-tap/Casks/lightcutvidz.rb
+
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/lightcutvidz.rb
+          git commit -m "chore: update LightCutVidz to ${VERSION_NUM}"
+          git push

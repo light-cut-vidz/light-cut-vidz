@@ -1,0 +1,115 @@
+{
+  "name": "lightcutvidz",
+  "version": "1.0.0",
+  "description": "Lightweight video editor desktop app",
+  "main": "src/main/index.js",
+  "scripts": {
+    "dev": "NODE_ENV=development concurrently \"vite --config vite.config.ts\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "vite build --config vite.config.ts && electron-builder",
+    "vite:build": "vite build --config vite.config.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src/renderer/src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [],
+  "author": {
+    "name": "Sikander RAVATE",
+    "email": "r.sik@hotmail.fr"
+  },
+  "license": "ISC",
+  "build": {
+    "appId": "com.lightcutvidz.app",
+    "productName": "LightCutVidz",
+    "directories": {
+      "output": "dist-app"
+    },
+    "icon": "assets/icon.png",
+    "files": [
+      "dist/**/*",
+      "src/main/**/*",
+      "src/preload/**/*",
+      "assets/**/*",
+      "node_modules/ffmpeg-static/**/*",
+      "node_modules/@ffprobe-installer/**/*",
+      "node_modules/fluent-ffmpeg/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**/*",
+      "node_modules/@ffprobe-installer/**/*"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "light-cut-vidz",
+      "repo": "light-cut-vidz"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "AudioVideo",
+      "artifactName": "LightCutVidz-linux.${ext}"
+    },
+    "snap": {
+      "confinement": "strict",
+      "grade": "stable",
+      "summary": "Lightweight video editor desktop app",
+      "plugs": ["default", "removable-media"],
+      "environment": {
+        "DISABLE_GPU_SANDBOX": "1"
+      },
+      "artifactName": "LightCutVidz-linux.${ext}"
+    },
+    "mac": {
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "LightCutVidz-mac-${arch}.${ext}"
+    }
+  },
+  "dependencies": {
+    "@ffprobe-installer/ffprobe": "^2.1.2",
+    "electron-updater": "^6.8.3",
+    "ffmpeg-static": "^5.3.0",
+    "fluent-ffmpeg": "^2.1.3",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/fluent-ffmpeg": "^2.1.28",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@typescript-eslint/eslint-plugin": "^8.57.1",
+    "@typescript-eslint/parser": "^8.57.1",
+    "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/coverage-v8": "^4.1.0",
+    "concurrently": "^9.2.1",
+    "electron": "^41.0.2",
+    "electron-builder": "^26.8.1",
+    "eslint": "^9.15.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "jsdom": "^29.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0",
+    "vitest": "^4.1.0",
+    "wait-on": "^9.0.4"
+  }
+}
