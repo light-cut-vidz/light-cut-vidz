@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LightCutVidz — Éditeur vidéo léger</title>
+  <meta name="description" content="LightCutVidz est un éditeur vidéo desktop léger et gratuit pour macOS et Linux. FFmpeg intégré, aucune dépendance externe." />
+  <link rel="icon" href="favicon.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── Nav ── -->
+  <header class="nav">
+    <div class="nav-inner">
+      <a href="#" class="nav-logo">
+        <img src="logo.png" alt="LightCutVidz" height="32" />
+      </a>
+      <nav class="nav-links">
+        <a href="#features" data-fr="Fonctionnalités" data-en="Features">Fonctionnalités</a>
+        <a href="#download" data-fr="Télécharger" data-en="Download">Télécharger</a>
+        <a href="https://github.com/light-cut-vidz/light-cut-vidz" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+      <button class="lang-toggle" id="langToggle" aria-label="Switch language">EN</button>
+    </div>
+  </header>
+
+  <!-- ── Hero ── -->
+  <section class="hero">
+    <div class="hero-inner">
+      <img src="logo.png" alt="LightCutVidz" class="hero-logo" />
+      <h1 class="hero-title">
+        <span data-fr="L'essentiel de l'édition vidéo." data-en="Video editing, stripped to the essentials.">L'essentiel de l'édition vidéo.</span>
+      </h1>
+      <p class="hero-sub">
+        <span data-fr="Gratuit, open-source, sans installation de dépendances. FFmpeg est intégré." data-en="Free, open-source, no dependencies to install. FFmpeg is bundled.">Gratuit, open-source, sans installation de dépendances. FFmpeg est intégré.</span>
+      </p>
+      <div class="hero-actions">
+        <a href="#download" class="btn-primary">
+          <span data-fr="Télécharger" data-en="Download">Télécharger</span>
+        </a>
+        <a href="https://github.com/light-cut-vidz/light-cut-vidz" target="_blank" rel="noopener" class="btn-ghost">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+          GitHub
+        </a>
+      </div>
+      <div class="hero-platforms">
+        <span class="platform-badge">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+          macOS
+        </span>
+        <span class="platform-badge">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12.504 0c-.155 0-.315.008-.48.021C7.309.358 3.561 3.522 2.27 7.665c-.01.03-.019.06-.027.09C.594 9.73 0 11.89 0 14.024 0 19.983 5.04 24 10.63 24c1.57 0 3.1-.3 4.52-.84l-.012.006c.8-.3 1.56-.68 2.26-1.13A11.73 11.73 0 0 0 24 12.06C24 5.44 18.854.037 12.504 0zm-.218 2.375c5.16.09 9.12 4.18 9.12 9.295 0 2.77-1.19 5.27-3.08 7.01a9.71 9.71 0 0 1-6.83 2.75c-4.94 0-8.94-3.74-9.27-8.47l-.004-.09c.36-3.67 3.07-6.67 6.63-7.47.45-.1.91-.15 1.43-.02zM8.46 7.5c-.84 0-1.5.67-1.5 1.5S7.62 10.5 8.46 10.5c.84 0 1.5-.67 1.5-1.5S9.3 7.5 8.46 7.5zm7.08 0c-.84 0-1.5.67-1.5 1.5s.66 1.5 1.5 1.5c.84 0 1.5-.67 1.5-1.5s-.66-1.5-1.5-1.5zm-3.54 3c-2.13 0-3.96 1.23-4.87 3.03a.75.75 0 0 0 1.34.67C9.17 13.04 10.29 12.5 12 12.5c1.71 0 2.83.54 3.52 1.7a.75.75 0 0 0 1.34-.67C15.96 11.73 14.13 10.5 12 10.5z"/></svg>
+          Linux
+        </span>
+        <span class="platform-badge platform-free">
+          <span data-fr="100% Gratuit" data-en="100% Free">100% Gratuit</span>
+        </span>
+      </div>
+    </div>
+    <div class="hero-glow"></div>
+  </section>
+
+  <!-- ── Features ── -->
+  <section class="features" id="features">
+    <div class="section-inner">
+      <h2 class="section-title" data-fr="Tout ce dont vous avez besoin." data-en="Everything you need.">Tout ce dont vous avez besoin.</h2>
+      <p class="section-sub" data-fr="Sans superflu. Sans abonnement. Sans Cloud." data-en="No bloat. No subscription. No cloud.">Sans superflu. Sans abonnement. Sans Cloud.</p>
+      <div class="features-grid">
+
+        <div class="feature-card">
+          <div class="feature-icon">✂️</div>
+          <h3 data-fr="Trim multi-segments" data-en="Multi-segment trim">Trim multi-segments</h3>
+          <p data-fr="Supprimez plusieurs parties d'une vidéo en dessinant des zones sur la timeline. Les zones se fusionnent automatiquement." data-en="Remove multiple parts of a video by drawing zones on the timeline. Overlapping zones merge automatically.">Supprimez plusieurs parties d'une vidéo en dessinant des zones sur la timeline. Les zones se fusionnent automatiquement.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🎬</div>
+          <h3 data-fr="Timeline avec vignettes" data-en="Filmstrip timeline">Timeline avec vignettes</h3>
+          <p data-fr="La timeline affiche des vignettes extraites de la vidéo pour vous repérer visuellement sur la piste." data-en="The timeline displays thumbnails extracted from your video so you can navigate visually.">La timeline affiche des vignettes extraites de la vidéo pour vous repérer visuellement sur la piste.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🔲</div>
+          <h3 data-fr="Recadrage interactif" data-en="Interactive crop">Recadrage interactif</h3>
+          <p data-fr="Dessinez une zone de recadrage directement sur la vidéo avec des poignées de coin. Confirmez avec Entrée." data-en="Draw a crop area directly on the video with corner handles. Confirm with Enter.">Dessinez une zone de recadrage directement sur la vidéo avec des poignées de coin. Confirmez avec Entrée.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">⏩</div>
+          <h3 data-fr="Contrôle de vitesse" data-en="Speed control">Contrôle de vitesse</h3>
+          <p data-fr="Ajustez la vitesse de 0.25× à 4× avec des presets ou un slider. Appliqué à la lecture et à l'export." data-en="Adjust speed from 0.25× to 4× with presets or a slider. Applied to playback and export.">Ajustez la vitesse de 0.25× à 4× avec des presets ou un slider. Appliqué à la lecture et à l'export.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">↩️</div>
+          <h3 data-fr="Annuler / Rétablir" data-en="Undo / Redo">Annuler / Rétablir</h3>
+          <p data-fr="Historique complet pour toutes les actions — vitesse, son, recadrage, coupes — via Ctrl+Z." data-en="Full history for every action — speed, mute, crop, cuts — via Ctrl+Z.">Historique complet pour toutes les actions — vitesse, son, recadrage, coupes — via Ctrl+Z.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">📦</div>
+          <h3 data-fr="FFmpeg intégré" data-en="Bundled FFmpeg">FFmpeg intégré</h3>
+          <p data-fr="Aucune installation supplémentaire. FFmpeg est embarqué dans l'application et fonctionne immédiatement." data-en="Nothing extra to install. FFmpeg is bundled inside the app and works out of the box.">Aucune installation supplémentaire. FFmpeg est embarqué dans l'application et fonctionne immédiatement.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🎞️</div>
+          <h3 data-fr="Export multi-formats" data-en="Multi-format export">Export multi-formats</h3>
+          <p data-fr="Exportez en MP4, MOV, WebM, AVI ou GIF animé avec une barre de progression en temps réel." data-en="Export to MP4, MOV, WebM, AVI or animated GIF with a real-time progress bar.">Exportez en MP4, MOV, WebM, AVI ou GIF animé avec une barre de progression en temps réel.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🔇</div>
+          <h3 data-fr="Contrôle audio" data-en="Audio control">Contrôle audio</h3>
+          <p data-fr="Activez ou désactivez la piste audio en un clic. La suppression s'applique à l'export." data-en="Enable or disable the audio track in one click. Applied at export.">Activez ou désactivez la piste audio en un clic. La suppression s'applique à l'export.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Formats ── -->
+  <section class="formats">
+    <div class="section-inner">
+      <h2 class="section-title" data-fr="Formats supportés" data-en="Supported formats">Formats supportés</h2>
+      <div class="formats-row">
+        <div class="formats-group">
+          <span class="formats-label" data-fr="Import" data-en="Import">Import</span>
+          <div class="format-tags">
+            <span class="tag">MP4</span>
+            <span class="tag">MOV</span>
+            <span class="tag">AVI</span>
+            <span class="tag">MKV</span>
+            <span class="tag">WebM</span>
+            <span class="tag">FLV</span>
+            <span class="tag">M4V</span>
+          </div>
+        </div>
+        <div class="formats-divider"></div>
+        <div class="formats-group">
+          <span class="formats-label" data-fr="Export" data-en="Export">Export</span>
+          <div class="format-tags">
+            <span class="tag tag-accent">MP4</span>
+            <span class="tag tag-accent">MOV</span>
+            <span class="tag tag-accent">WebM</span>
+            <span class="tag tag-accent">AVI</span>
+            <span class="tag tag-accent">GIF</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Download ── -->
+  <section class="download" id="download">
+    <div class="section-inner">
+      <h2 class="section-title" data-fr="Télécharger LightCutVidz" data-en="Download LightCutVidz">Télécharger LightCutVidz</h2>
+      <p class="section-sub" data-fr="Gratuit et open-source. Toujours." data-en="Free and open-source. Always.">Gratuit et open-source. Toujours.</p>
+
+      <div class="download-cards">
+
+        <div class="download-card">
+          <div class="dl-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+          </div>
+          <h3>macOS</h3>
+          <p class="dl-version">DMG · macOS 10.13+</p>
+          <a href="https://github.com/light-cut-vidz/light-cut-vidz/releases/latest/download/LightCutVidz-mac-arm64.dmg" class="btn-download" id="btn-mac-arm64">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span data-fr="Apple Silicon (M1/M2/M3/M4)" data-en="Apple Silicon (M1/M2/M3/M4)">Apple Silicon (M1/M2/M3/M4)</span>
+          </a>
+          <a href="https://github.com/light-cut-vidz/light-cut-vidz/releases/latest/download/LightCutVidz-mac-x64.dmg" class="btn-download btn-download-secondary" id="btn-mac-x64">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span data-fr="Mac Intel (2019 et avant)" data-en="Mac Intel (2019 and earlier)">Mac Intel (2019 et avant)</span>
+          </a>
+          <div class="dl-pkg">
+            <p class="dl-alt-label">Homebrew</p>
+            <div class="dl-code-block">
+              <code>brew tap light-cut-vidz/tap</code>
+              <code>brew install --cask lightcutvidz</code>
+            </div>
+          </div>
+          <p class="dl-gatekeeper" data-fr="Premier lancement DMG : clic droit → Ouvrir (Gatekeeper)" data-en="First DMG launch: right-click → Open (Gatekeeper)">Premier lancement DMG : clic droit → Ouvrir (Gatekeeper)</p>
+        </div>
+
+        <div class="download-card download-card-featured">
+          <div class="dl-featured-badge" data-fr="Recommandé" data-en="Recommended">Recommandé</div>
+          <div class="dl-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12.504 0c-.155 0-.315.008-.48.021C7.309.358 3.561 3.522 2.27 7.665c-.01.03-.019.06-.027.09C.594 9.73 0 11.89 0 14.024 0 19.983 5.04 24 10.63 24c1.57 0 3.1-.3 4.52-.84l-.012.006c.8-.3 1.56-.68 2.26-1.13A11.73 11.73 0 0 0 24 12.06C24 5.44 18.854.037 12.504 0zm-.218 2.375c5.16.09 9.12 4.18 9.12 9.295 0 2.77-1.19 5.27-3.08 7.01a9.71 9.71 0 0 1-6.83 2.75c-4.94 0-8.94-3.74-9.27-8.47l-.004-.09c.36-3.67 3.07-6.67 6.63-7.47.45-.1.91-.15 1.43-.02z"/></svg>
+          </div>
+          <h3>Linux</h3>
+          <p class="dl-version">AppImage · deb · Snap</p>
+          <p class="dl-note" data-fr="Ubuntu, Debian, Fedora, Snap, Arch…" data-en="Ubuntu, Debian, Fedora, Snap, Arch…">Ubuntu, Debian, Fedora, Snap, Arch…</p>
+          <div class="dl-pkg">
+            <p class="dl-alt-label">Snap</p>
+            <div class="dl-code-block">
+              <code>snap install lightcutvidz</code>
+            </div>
+          </div>
+          <a href="https://github.com/light-cut-vidz/light-cut-vidz/releases/latest/download/LightCutVidz-linux.deb" class="btn-download btn-download-accent">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span data-fr="Télécharger .deb" data-en="Download .deb">Télécharger .deb</span>
+          </a>
+          <div class="dl-alt">
+            <p class="dl-alt-label" data-fr="Autres distributions" data-en="Other distributions">Autres distributions</p>
+            <a href="https://github.com/light-cut-vidz/light-cut-vidz/releases/latest" class="dl-alt-link" data-fr="Télécharger l'AppImage →" data-en="Download AppImage →">Télécharger l'AppImage →</a>
+          </div>
+        </div>
+
+        <div class="download-card">
+          <div class="dl-icon dl-icon-code">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          </div>
+          <h3 data-fr="Depuis la source" data-en="From source">Depuis la source</h3>
+          <p class="dl-version">Node.js 20+</p>
+          <p class="dl-note" data-fr="Pour les développeurs" data-en="For developers">Pour les développeurs</p>
+          <div class="dl-code-block">
+            <code>git clone https://github.com/light-cut-vidz/light-cut-vidz.git</code>
+            <code>npm install --legacy-peer-deps</code>
+            <code>npm run dev</code>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="installer-grid">
+        <div class="installer-block">
+          <p class="installer-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-.15em;margin-right:6px"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+            <span data-fr="macOS via Homebrew" data-en="macOS via Homebrew">macOS via Homebrew</span>
+          </p>
+          <div class="installer-cmd">
+            <code class="copy-target">brew tap light-cut-vidz/tap &amp;&amp; brew install --cask lightcutvidz</code>
+            <button class="copy-btn" aria-label="Copy">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="installer-block">
+          <p class="installer-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-.15em;margin-right:6px"><path d="M12.504 0c-.155 0-.315.008-.48.021C7.309.358 3.561 3.522 2.27 7.665c-.01.03-.019.06-.027.09C.594 9.73 0 11.89 0 14.024 0 19.983 5.04 24 10.63 24c1.57 0 3.1-.3 4.52-.84l-.012.006c.8-.3 1.56-.68 2.26-1.13A11.73 11.73 0 0 0 24 12.06C24 5.44 18.854.037 12.504 0zm-.218 2.375c5.16.09 9.12 4.18 9.12 9.295 0 2.77-1.19 5.27-3.08 7.01a9.71 9.71 0 0 1-6.83 2.75c-4.94 0-8.94-3.74-9.27-8.47l-.004-.09c.36-3.67 3.07-6.67 6.63-7.47.45-.1.91-.15 1.43-.02z"/></svg>
+            <span data-fr="Linux via Snap" data-en="Linux via Snap">Linux via Snap</span>
+          </p>
+          <div class="installer-cmd">
+            <code class="copy-target">snap install lightcutvidz</code>
+            <button class="copy-btn" aria-label="Copy">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Uninstall ── -->
+  <section class="uninstall" id="uninstall">
+    <div class="container">
+      <h2 class="section-title" data-fr="Désinstaller" data-en="Uninstall">Désinstaller</h2>
+      <div class="installer-grid">
+
+        <div class="installer-block">
+          <p class="installer-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-.15em;margin-right:6px"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+            <span data-fr="macOS — Homebrew" data-en="macOS — Homebrew">macOS — Homebrew</span>
+          </p>
+          <div class="installer-cmd">
+            <code class="copy-target">brew uninstall --cask lightcutvidz</code>
+            <button class="copy-btn" aria-label="Copy">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="installer-block">
+          <p class="installer-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-.15em;margin-right:6px"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+            <span data-fr="macOS — DMG (manuel)" data-en="macOS — DMG (manual)">macOS — DMG (manuel)</span>
+          </p>
+          <div class="installer-cmd">
+            <code class="copy-target">rm -rf /Applications/LightCutVidz.app</code>
+            <button class="copy-btn" aria-label="Copy">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="installer-block">
+          <p class="installer-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-.15em;margin-right:6px"><path d="M12.504 0c-.155 0-.315.008-.48.021C7.309.358 3.561 3.522 2.27 7.665c-.01.03-.019.06-.027.09C.594 9.73 0 11.89 0 14.024 0 19.983 5.04 24 10.63 24c1.57 0 3.1-.3 4.52-.84l-.012.006c.8-.3 1.56-.68 2.26-1.13A11.73 11.73 0 0 0 24 12.06C24 5.44 18.854.037 12.504 0zm-.218 2.375c5.16.09 9.12 4.18 9.12 9.295 0 2.77-1.19 5.27-3.08 7.01a9.71 9.71 0 0 1-6.83 2.75c-4.94 0-8.94-3.74-9.27-8.47l-.004-.09c.36-3.67 3.07-6.67 6.63-7.47.45-.1.91-.15 1.43-.02z"/></svg>
+            <span data-fr="Linux — Snap" data-en="Linux — Snap">Linux — Snap</span>
+          </p>
+          <div class="installer-cmd">
+            <code class="copy-target">sudo snap remove lightcutvidz</code>
+            <button class="copy-btn" aria-label="Copy">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="installer-block">
+          <p class="installer-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-.15em;margin-right:6px"><path d="M12.504 0c-.155 0-.315.008-.48.021C7.309.358 3.561 3.522 2.27 7.665c-.01.03-.019.06-.027.09C.594 9.73 0 11.89 0 14.024 0 19.983 5.04 24 10.63 24c1.57 0 3.1-.3 4.52-.84l-.012.006c.8-.3 1.56-.68 2.26-1.13A11.73 11.73 0 0 0 24 12.06C24 5.44 18.854.037 12.504 0zm-.218 2.375c5.16.09 9.12 4.18 9.12 9.295 0 2.77-1.19 5.27-3.08 7.01a9.71 9.71 0 0 1-6.83 2.75c-4.94 0-8.94-3.74-9.27-8.47l-.004-.09c.36-3.67 3.07-6.67 6.63-7.47.45-.1.91-.15 1.43-.02z"/></svg>
+            <span data-fr="Linux — .deb (apt)" data-en="Linux — .deb (apt)">Linux — .deb (apt)</span>
+          </p>
+          <div class="installer-cmd">
+            <code class="copy-target">sudo apt remove lightcutvidz</code>
+            <button class="copy-btn" aria-label="Copy">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="installer-block">
+          <p class="installer-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-.15em;margin-right:6px"><path d="M12.504 0c-.155 0-.315.008-.48.021C7.309.358 3.561 3.522 2.27 7.665c-.01.03-.019.06-.027.09C.594 9.73 0 11.89 0 14.024 0 19.983 5.04 24 10.63 24c1.57 0 3.1-.3 4.52-.84l-.012.006c.8-.3 1.56-.68 2.26-1.13A11.73 11.73 0 0 0 24 12.06C24 5.44 18.854.037 12.504 0zm-.218 2.375c5.16.09 9.12 4.18 9.12 9.295 0 2.77-1.19 5.27-3.08 7.01a9.71 9.71 0 0 1-6.83 2.75c-4.94 0-8.94-3.74-9.27-8.47l-.004-.09c.36-3.67 3.07-6.67 6.63-7.47.45-.1.91-.15 1.43-.02z"/></svg>
+            <span data-fr="Linux — AppImage (manuel)" data-en="Linux — AppImage (manual)">Linux — AppImage (manuel)</span>
+          </p>
+          <div class="installer-cmd">
+            <code class="copy-target">rm ~/.local/bin/LightCutVidz.AppImage ~/.local/share/applications/lightcutvidz.desktop</code>
+            <button class="copy-btn" aria-label="Copy">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Footer ── -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <img src="logo.png" alt="LightCutVidz" height="24" />
+      <p data-fr="LightCutVidz est open-source sous licence ISC." data-en="LightCutVidz is open-source under the ISC license.">LightCutVidz est open-source sous licence ISC.</p>
+      <a href="https://github.com/light-cut-vidz/light-cut-vidz" target="_blank" rel="noopener">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        light-cut-vidz
+      </a>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
