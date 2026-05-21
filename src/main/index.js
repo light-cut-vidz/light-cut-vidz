@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const ffmpeg = require('fluent-ffmpeg')
@@ -6,11 +6,13 @@ const ffmpegStatic = require('ffmpeg-static')
 const ffprobeInstaller = require('@ffprobe-installer/ffprobe')
 const { autoUpdater } = require('electron-updater')
 const { getFilterFfmpeg } = require('./filters')
-
-// In production, binaries are unpacked from the asar archive
-function fixAsarPath(p) {
-  return p.replace('app.asar', 'app.asar.unpacked')
-}
+const { fixAsarPath } = require('./lib/asar')
+const { clampAtempo } = require('./lib/atempo')
+const { buildVideoFilters } = require('./lib/videoFilters')
+const { translate } = require('./lib/i18n')
+const { buildMenu, setUndoRedoEnabled, VIDEO_EXTENSIONS } = require('./lib/menu')
+const { setupAutoUpdater, checkForUpdates } = require('./lib/updater')
+const { showAboutWindow } = require('./lib/aboutWindow')
 
 ffmpeg.setFfmpegPath(fixAsarPath(ffmpegStatic))
 ffmpeg.setFfprobePath(fixAsarPath(ffprobeInstaller.path))
@@ -18,157 +20,27 @@ ffmpeg.setFfprobePath(fixAsarPath(ffprobeInstaller.path))
 const isDev = process.env.NODE_ENV === 'development'
 const isSnap = !!process.env.SNAP
 
-// ─── i18n (main process) ──────────────────────────────────────────────────────
-
 let currentLang = 'en'
 let win = null
+const updaterState = { updateDownloaded: false }
 
-const msgs = {
-  en: {
-    // Auto-updater dialogs
-    update_ready_title: 'Update ready',
-    update_ready_msg: 'The update has been downloaded. The app will restart to apply it.',
-    update_restart_now: 'Restart now',
-    update_later: 'Later',
-    dev_mode_title: 'Dev mode',
-    dev_mode_msg: 'Auto-update is disabled in development.',
-    no_update_title: 'No update',
-    no_update_msg: 'You are already using the latest version.',
-    no_update_msg_v: (v) => `You are already on the latest version (${v}).`,
-    update_available_title: 'Update available',
-    update_available_msg: (latest, current) => `Version ${latest} is available (current: ${current}).`,
-    update_available_detail: 'Do you want to download and install it now?',
-    update_download_install: 'Download & Install',
-    update_downloading_title: 'Downloading update…',
-    update_downloading_msg: 'The update is being downloaded. You will be prompted to restart when ready.',
-    update_failed_title: 'Update check failed',
-    // Menu
-    menu_file: 'File',
-    menu_open_video: 'Open video…',
-    menu_edit: 'Edit',
-    menu_undo: 'Undo',
-    menu_redo: 'Redo',
-    menu_view: 'View',
-    menu_fullscreen: 'Toggle Full Screen',
-    menu_help: 'Help',
-    menu_about: 'About LightCutVidz',
-    about_title: 'LightCutVidz',
-    about_message: (v) => `Version ${v}`,
-    menu_check_updates: 'Check for Updates…',
-    menu_language: 'Language',
-  },
-  fr: {
-    // Auto-updater dialogs
-    update_ready_title: 'Mise à jour prête',
-    update_ready_msg: 'La mise à jour a été téléchargée. L\'application va redémarrer pour l\'appliquer.',
-    update_restart_now: 'Redémarrer maintenant',
-    update_later: 'Plus tard',
-    dev_mode_title: 'Mode développement',
-    dev_mode_msg: 'La mise à jour automatique est désactivée en développement.',
-    no_update_title: 'Pas de mise à jour',
-    no_update_msg: 'Vous utilisez déjà la dernière version.',
-    no_update_msg_v: (v) => `Vous êtes déjà sur la dernière version (${v}).`,
-    update_available_title: 'Mise à jour disponible',
-    update_available_msg: (latest, current) => `La version ${latest} est disponible (actuelle : ${current}).`,
-    update_available_detail: 'Voulez-vous la télécharger et l\'installer maintenant ?',
-    update_download_install: 'Télécharger et installer',
-    update_downloading_title: 'Téléchargement en cours…',
-    update_downloading_msg: 'La mise à jour est en cours de téléchargement. Vous serez invité à redémarrer une fois prêt.',
-    update_failed_title: 'Échec de la vérification',
-    // Menu
-    menu_file: 'Fichier',
-    menu_open_video: 'Ouvrir une vidéo…',
-    menu_edit: 'Édition',
-    menu_undo: 'Annuler',
-    menu_redo: 'Rétablir',
-    menu_view: 'Affichage',
-    menu_fullscreen: 'Basculer en plein écran',
-    menu_help: 'Aide',
-    menu_about: 'À propos de LightCutVidz',
-    about_title: 'LightCutVidz',
-    about_message: (v) => `Version ${v}`,
-    menu_check_updates: 'Vérifier les mises à jour…',
-    menu_language: 'Langue',
-  },
-}
-
-const t = (key, ...args) => {
-  const val = msgs[currentLang]?.[key] ?? msgs.en[key]
-  return typeof val === 'function' ? val(...args) : val
-}
+const t = (key, ...args) => translate(currentLang, key, ...args)
 
 // ─── Auto updater ─────────────────────────────────────────────────────────────
 
-autoUpdater.autoDownload = false
-autoUpdater.autoInstallOnAppQuit = true
-
-let updateDownloaded = false
-
-autoUpdater.on('error', (err) => {
-  dialog.showMessageBox(win, { type: 'error', title: t('update_failed_title'), message: String(err.message || err) })
+setupAutoUpdater({
+  autoUpdater,
+  dialog,
+  getWindow: () => win,
+  t,
+  state: updaterState,
 })
 
-autoUpdater.on('update-downloaded', () => {
-  updateDownloaded = true
-  dialog.showMessageBox(win, {
-    type: 'info',
-    title: t('update_ready_title'),
-    message: t('update_ready_msg'),
-    buttons: [t('update_restart_now'), t('update_later')],
-    defaultId: 0,
-  }).then(({ response }) => {
-    if (response === 0) autoUpdater.quitAndInstall()
-  })
+const checkUpdates = (fromMenu = false) => checkForUpdates({
+  autoUpdater, dialog, app, getWindow: () => win, t, state: updaterState, isDev, isSnap, fromMenu,
 })
 
-async function checkForUpdates(fromMenu = false) {
-  if (isDev || isSnap) return
-  if (updateDownloaded) {
-    dialog.showMessageBox(win, {
-      type: 'info',
-      title: t('update_ready_title'),
-      message: t('update_ready_msg'),
-      buttons: [t('update_restart_now'), t('update_later')],
-      defaultId: 0,
-    }).then(({ response }) => {
-      if (response === 0) autoUpdater.quitAndInstall()
-    })
-    return
-  }
-  try {
-    const result = await autoUpdater.checkForUpdates()
-    if (!result || !result.updateInfo) {
-      if (fromMenu) dialog.showMessageBox(win, { type: 'info', title: t('no_update_title'), message: t('no_update_msg') })
-      return
-    }
-    const latest = result.updateInfo.version
-    if (latest === app.getVersion()) {
-      if (fromMenu) dialog.showMessageBox(win, { type: 'info', title: t('no_update_title'), message: t('no_update_msg_v', latest) })
-      return
-    }
-    const { response } = await dialog.showMessageBox(win, {
-      type: 'info',
-      title: t('update_available_title'),
-      message: t('update_available_msg', latest, app.getVersion()),
-      detail: t('update_available_detail'),
-      buttons: [t('update_download_install'), t('update_later')],
-      defaultId: 0,
-    })
-    if (response === 0) {
-      dialog.showMessageBox(win, {
-        type: 'info',
-        title: t('update_downloading_title'),
-        message: t('update_downloading_msg'),
-        buttons: ['OK'],
-      })
-      autoUpdater.downloadUpdate().catch((err) => {
-        dialog.showMessageBox(win, { type: 'error', title: t('update_failed_title'), message: String(err.message || err) })
-      })
-    }
-  } catch (err) {
-    if (fromMenu) dialog.showMessageBox(win, { type: 'error', title: t('update_failed_title'), message: String(err.message || err) })
-  }
-}
+// ─── Window ───────────────────────────────────────────────────────────────────
 
 function createWindow() {
   win = new BrowserWindow({
@@ -191,8 +63,7 @@ function createWindow() {
     win.loadURL('http://localhost:5173')
     win.webContents.openDevTools()
   } else {
-    const indexPath = path.join(app.getAppPath(), 'dist', 'index.html')
-    win.loadFile(indexPath)
+    win.loadFile(path.join(app.getAppPath(), 'dist', 'index.html'))
   }
 
   win.webContents.on('before-input-event', (_, input) => {
@@ -205,7 +76,7 @@ app.whenReady().then(() => {
   process.title = 'LightCutVidz'
   app.setName('LightCutVidz')
   createWindow()
-  buildMenu()
+  rebuildMenu()
 })
 
 app.on('window-all-closed', () => {
@@ -218,240 +89,51 @@ app.on('activate', () => {
 
 // ─── Native menu ──────────────────────────────────────────────────────────────
 
-function showAboutWindow() {
-  const aboutWin = new BrowserWindow({
-    width: 360,
-    height: 200,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    parent: win,
-    modal: true,
-    title: t('about_title'),
-    backgroundColor: '#1a1a1a',
-    autoHideMenuBar: true,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-    },
+function rebuildMenu() {
+  buildMenu({
+    t,
+    currentLang,
+    isSnap,
+    onOpenVideo: (focused, filePath) => focused.webContents.send('menu:openVideo', filePath),
+    onUndo: (focused) => focused?.webContents.send('menu:undo'),
+    onRedo: (focused) => focused?.webContents.send('menu:redo'),
+    onFullscreenEntered: (focused) => focused.webContents.send('menu:fullscreen-entered'),
+    onAbout: () => showAboutWindow({ parent: win, title: t('about_title'), message: t('about_message', app.getVersion()) }),
+    onCheckUpdates: checkUpdates,
+    onSwitchLanguage: switchLanguage,
   })
-
-  const version = app.getVersion()
-  const html = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: #1a1a1a;
-    color: #e0e0e0;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
-    text-align: center;
-    gap: 10px;
-  }
-  h1 { font-size: 18px; font-weight: 600; }
-  p  { font-size: 13px; color: #999; }
-  button {
-    margin-top: 14px;
-    padding: 8px 28px;
-    background: #e05a00;
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    cursor: pointer;
-    font-family: inherit;
-  }
-  button:hover { background: #f06a00; }
-</style>
-</head>
-<body>
-  <h1>${escapeHtml(t('about_title'))}</h1>
-  <p>${escapeHtml(t('about_message', version))}</p>
-  <button onclick="window.close()">OK</button>
-</body>
-</html>`
-
-  aboutWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
-  aboutWin.setMenuBarVisibility(false)
-}
-
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
-function buildMenu() {
-  const isMac = process.platform === 'darwin'
-
-  const template = [
-    ...(isMac ? [{
-      label: 'LightCutVidz',
-      submenu: [
-        { role: 'about' },
-        { type: 'separator' },
-        { role: 'services' },
-        { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
-        { type: 'separator' },
-        { role: 'quit' },
-      ],
-    }] : []),
-    {
-      label: t('menu_file'),
-      submenu: [
-        {
-          label: t('menu_open_video'),
-          accelerator: 'CmdOrCtrl+O',
-          click: async () => {
-            const win = BrowserWindow.getFocusedWindow()
-            if (!win) return
-            const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-              filters: [{ name: 'Videos', extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'm4v'] }],
-              properties: ['openFile'],
-            })
-            if (!canceled && filePaths[0]) {
-              win.webContents.send('menu:openVideo', filePaths[0])
-            }
-          },
-        },
-        { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit' },
-      ],
-    },
-    {
-      label: t('menu_edit'),
-      submenu: [
-        {
-          id: 'undo',
-          label: t('menu_undo'),
-          accelerator: 'CmdOrCtrl+Z',
-          enabled: false,
-          click: () => BrowserWindow.getFocusedWindow()?.webContents.send('menu:undo'),
-        },
-        {
-          id: 'redo',
-          label: t('menu_redo'),
-          accelerator: process.platform === 'darwin' ? 'Cmd+Shift+Z' : 'Ctrl+Y',
-          enabled: false,
-          click: () => BrowserWindow.getFocusedWindow()?.webContents.send('menu:redo'),
-        },
-      ],
-    },
-    {
-      label: t('menu_view'),
-      submenu: [
-        {
-          label: t('menu_fullscreen'),
-          accelerator: process.platform === 'darwin' ? 'Ctrl+Cmd+F' : 'F11',
-          click: () => {
-            const win = BrowserWindow.getFocusedWindow()
-            if (!win) return
-            const entering = !win.isFullScreen()
-            win.setFullScreen(entering)
-            if (entering) {
-              win.webContents.send('menu:fullscreen-entered')
-            }
-          },
-        },
-      ],
-    },
-    {
-      label: t('menu_help'),
-      submenu: [
-        {
-          label: t('menu_about'),
-          click: () => showAboutWindow(),
-        },
-        { type: 'separator' },
-        {
-          label: t('menu_check_updates'),
-          enabled: !isSnap,
-          click: () => checkForUpdates(true),
-        },
-        { type: 'separator' },
-        {
-          label: t('menu_language'),
-          submenu: [
-            {
-              id: 'lang-en',
-              label: 'English',
-              type: 'radio',
-              checked: currentLang === 'en',
-              click: () => switchLanguage('en'),
-            },
-            {
-              id: 'lang-fr',
-              label: 'Français',
-              type: 'radio',
-              checked: currentLang === 'fr',
-              click: () => switchLanguage('fr'),
-            },
-          ],
-        },
-      ],
-    },
-  ]
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
 function switchLanguage(lang) {
   currentLang = lang
-  buildMenu()
-  // Notify all renderer windows
-  for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send('menu:setLanguage', lang)
+  rebuildMenu()
+  for (const w of BrowserWindow.getAllWindows()) {
+    w.webContents.send('menu:setLanguage', lang)
   }
 }
 
 // ─── IPC Handlers ─────────────────────────────────────────────────────────────
 
-// Undo/Redo menu state sync
-ipcMain.on('menu:setUndoRedoState', (_, { canUndo, canRedo }) => {
-  const menu = Menu.getApplicationMenu()
-  if (!menu) return
-  const undoItem = menu.getMenuItemById('undo')
-  const redoItem = menu.getMenuItemById('redo')
-  if (undoItem) undoItem.enabled = canUndo
-  if (redoItem) redoItem.enabled = canRedo
-})
+ipcMain.on('menu:setUndoRedoState', (_, { canUndo, canRedo }) => setUndoRedoEnabled(canUndo, canRedo))
 
-// Language sync from renderer (on startup or programmatic change)
 ipcMain.on('menu:setLanguage', (_, lang) => {
   if (lang !== currentLang && (lang === 'en' || lang === 'fr')) {
     currentLang = lang
-    buildMenu()
+    rebuildMenu()
   }
 })
 
-// Open file dialog
 ipcMain.handle('dialog:openVideo', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
-    filters: [{ name: 'Videos', extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'm4v'] }],
+    filters: [{ name: 'Videos', extensions: VIDEO_EXTENSIONS }],
     properties: ['openFile'],
   })
-  if (canceled) return null
-  return filePaths[0]
+  return canceled ? null : filePaths[0]
 })
 
-// Transcode video to WebM for preview (solves Electron codec limitations)
+// Transcode to WebM for preview (Electron lacks H.264/AAC codecs).
 ipcMain.handle('ffmpeg:preview', async (event, inputPath) => {
-  const tmpDir = app.getPath('temp')
-  const outPath = path.join(tmpDir, `lc_preview_${Date.now()}.webm`)
-
+  const outPath = path.join(app.getPath('temp'), `lc_preview_${Date.now()}.webm`)
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
       .outputOptions([
@@ -472,7 +154,6 @@ ipcMain.handle('ffmpeg:preview', async (event, inputPath) => {
   })
 })
 
-// Save file dialog
 ipcMain.handle('dialog:saveVideo', async (_, defaultName) => {
   const { canceled, filePath } = await dialog.showSaveDialog({
     defaultPath: defaultName || 'output.mp4',
@@ -484,11 +165,9 @@ ipcMain.handle('dialog:saveVideo', async (_, defaultName) => {
       { name: 'GIF', extensions: ['gif'] },
     ],
   })
-  if (canceled) return null
-  return filePath
+  return canceled ? null : filePath
 })
 
-// Get video metadata
 ipcMain.handle('ffmpeg:probe', async (_, filePath) => {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(filePath, (err, metadata) => {
@@ -498,31 +177,20 @@ ipcMain.handle('ffmpeg:probe', async (_, filePath) => {
   })
 })
 
-// Export video with all edits applied
 ipcMain.handle('ffmpeg:export', async (event, options) => {
   const {
-    inputPath,
-    outputPath,
-    segments,      // [{start, end}] — parts to KEEP
-    speed,         // e.g. 1.5
-    crop,          // {x, y, w, h} in original pixels, or null
-    filter,        // string id
-    rotation,      // 0, 90, 180, 270
-    straighten,    // -45 to 45
-    perspectiveH,  // -45 to 45
-    perspectiveV,  // -45 to 45
-    muted,         // boolean
-    format,        // 'mp4' | 'mov' | 'webm' | 'gif' | 'avi'
-    duration,      // total duration in seconds
+    inputPath, outputPath, segments, speed, crop, filter,
+    rotation, straighten, perspectiveH, perspectiveV, muted, format,
   } = options
 
   return new Promise(async (resolve, reject) => {
     try {
       const tmpDir = app.getPath('temp')
       const segmentFiles = []
-      const ffFilter = getFilterFfmpeg(filter)
+      const colorFilter = getFilterFfmpeg(filter)
+      const vFilters = buildVideoFilters({ rotation, straighten, perspectiveH, perspectiveV, crop, colorFilter, speed })
 
-      // Step 1: Extract and process each kept segment
+      // Step 1: extract & process each kept segment
       for (let i = 0; i < segments.length; i++) {
         const seg = segments[i]
         const segOut = path.join(tmpDir, `lc_seg_${Date.now()}_${i}.mp4`)
@@ -532,87 +200,10 @@ ipcMain.handle('ffmpeg:export', async (event, options) => {
           let cmd = ffmpeg(inputPath)
             .inputOptions([`-ss ${seg.start}`, `-t ${seg.end - seg.start}`])
 
-          // Build video filters
-          const vFilters = []
+          if (vFilters.length > 0) cmd = cmd.videoFilter(vFilters.join(','))
 
-          // 1. Rotation & Straighten
-          const totalRotate = (rotation || 0) + (straighten || 0)
-          if (totalRotate !== 0) {
-            if (totalRotate === 90) vFilters.push('transpose=1')
-            else if (totalRotate === 180) vFilters.push('transpose=1,transpose=1')
-            else if (totalRotate === 270) vFilters.push('transpose=2')
-            else if (totalRotate === -90) vFilters.push('transpose=2')
-            else {
-              // Fine rotation. Note: ow/oh handles expanding the frame to fit rotated content
-              vFilters.push(`rotate=${totalRotate}*PI/180:ow=rotw(${totalRotate}*PI/180):oh=roth(${totalRotate}*PI/180)`)
-            }
-          }
-
-          // 2. Perspective
-          if (perspectiveH !== 0 || perspectiveV !== 0) {
-            // Simplified perspective mapping
-            // We use 'sin' to approximate the trapezoidal effect
-            const hRad = (perspectiveH || 0) * Math.PI / 180
-            const vRad = (perspectiveV || 0) * Math.PI / 180
-            
-            // We'll calculate the 4 corners. 
-            // In ffmpeg perspective, we define the source corners in the destination.
-            // This is complex, so we'll use a simplified model.
-            // For a 1000px perspective distance (matching CSS)
-            const focal = 1000
-            
-            // We need to know the width/height after rotation
-            // This is a bit tricky as we don't have it here easily, 
-            // but we can assume the filter chain handles it.
-            // However, ffmpeg's perspective filter needs coordinates.
-            // We can use expressions in the perspective filter!
-            
-            const xh = `(W*sin(${hRad}))`
-            const yv = `(H*sin(${vRad}))`
-            
-            // Horizontal Perspective (tilt around Y)
-            // Left edge gets larger, right edge gets smaller (or vice versa)
-            let pFilter = ''
-            if (perspectiveH !== 0 && perspectiveV === 0) {
-              const s = Math.sin(hRad) * 0.2
-              pFilter = `perspective=x0=0:y0=-H*${s}:x1=W:y1=H*${s}:x2=0:y2=H+H*${s}:x3=W:y3=H-H*${s}:sense=destination`
-            } else if (perspectiveV !== 0 && perspectiveH === 0) {
-              const s = Math.sin(vRad) * 0.2
-              pFilter = `perspective=x0=-W*${s}:y0=0:x1=W+W*${s}:y1=0:x2=W*${s}:y2=H:x3=W-W*${s}:y3=H:sense=destination`
-            } else if (perspectiveH !== 0 || perspectiveV !== 0) {
-              // Combined (rough approximation)
-              const sh = Math.sin(hRad) * 0.2
-              const sv = Math.sin(vRad) * 0.2
-              pFilter = `perspective=x0=-W*${sv}:y0=-H*${sh}:x1=W+W*${sv}:y1=H*${sh}:x2=W*${sv}:y2=H+H*${sh}:x3=W-W*${sv}:y3=H-H*${sh}:sense=destination`
-            }
-            if (pFilter) vFilters.push(pFilter)
-          }
-
-          // 3. Crop
-          if (crop) {
-            vFilters.push(`crop=${Math.round(crop.w)}:${Math.round(crop.h)}:${Math.round(crop.x)}:${Math.round(crop.y)}`)
-          }
-
-          // 4. Color Filters
-          if (ffFilter) {
-            vFilters.push(ffFilter)
-          }
-
-          // 5. Speed
-          if (speed !== 1) {
-            vFilters.push(`setpts=${(1 / speed).toFixed(4)}*PTS`)
-          }
-
-          if (vFilters.length > 0) {
-            cmd = cmd.videoFilter(vFilters.join(','))
-          }
-
-          // Audio filters
-          if (muted) {
-            cmd = cmd.noAudio()
-          } else if (speed !== 1) {
-            cmd = cmd.audioFilter(`atempo=${clampAtempo(speed)}`)
-          }
+          if (muted) cmd = cmd.noAudio()
+          else if (speed !== 1) cmd = cmd.audioFilter(`atempo=${clampAtempo(speed)}`)
 
           cmd
             .outputOptions(['-c:v libx264', '-preset fast', '-crf 22', '-movflags +faststart'])
@@ -627,9 +218,8 @@ ipcMain.handle('ffmpeg:export', async (event, options) => {
         })
       }
 
-      // Step 2: Concatenate segments if more than one
+      // Step 2: concatenate (only if more than one segment)
       if (segmentFiles.length === 1) {
-        // Just re-encode to target format/container
         await convertToFormat(segmentFiles[0], outputPath, format, event)
         fs.unlinkSync(segmentFiles[0])
       } else {
@@ -648,13 +238,11 @@ ipcMain.handle('ffmpeg:export', async (event, options) => {
             .run()
         })
 
-        // Convert to final format
         await convertToFormat(concatOut, outputPath, format, event)
 
-        // Cleanup temp files
-        segmentFiles.forEach(f => { try { fs.unlinkSync(f) } catch {} })
-        try { fs.unlinkSync(concatList) } catch {}
-        try { fs.unlinkSync(concatOut) } catch {}
+        segmentFiles.forEach(f => { try { fs.unlinkSync(f) } catch { /* ignore */ } })
+        try { fs.unlinkSync(concatList) } catch { /* ignore */ }
+        try { fs.unlinkSync(concatOut) } catch { /* ignore */ }
       }
 
       event.sender.send('ffmpeg:progress', 100)
@@ -676,7 +264,7 @@ function convertToFormat(inputPath, outputPath, format, event) {
     } else if (format === 'webm') {
       cmd = cmd.outputOptions(['-c:v libvpx-vp9', '-crf 30', '-b:v 0', '-c:a libopus'])
     } else {
-      // mp4, mov, avi — copy stream if already h264
+      // mp4, mov, avi — stream copy when already h264
       cmd = cmd.outputOptions(['-c copy'])
     }
 
@@ -687,12 +275,4 @@ function convertToFormat(inputPath, outputPath, format, event) {
       .on('error', reject)
       .run()
   })
-}
-
-// atempo filter only accepts 0.5–2.0, chain for values outside that range
-function clampAtempo(speed) {
-  if (speed >= 0.5 && speed <= 2) return speed.toFixed(4)
-  if (speed > 2) return `2.0,atempo=${(speed / 2).toFixed(4)}`
-  // speed < 0.5
-  return `0.5,atempo=${(speed * 2).toFixed(4)}`
 }

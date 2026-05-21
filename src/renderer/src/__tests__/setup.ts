@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 // Mock localStorage for tests
 const localStorageMock = {
-  getItem: (key: string) => null,
+  getItem: (_key: string) => null,
   setItem: () => {},
   removeItem: () => {},
   clear: () => {},

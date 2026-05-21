@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo } from 'react'
+import React, { memo, useEffect, useRef, useMemo } from 'react'
 import { getFilterById } from '../utils/filters'
 import './VideoPlayer.css'
 
@@ -17,7 +17,7 @@ interface Props {
   onPlayPause: (playing: boolean) => void
 }
 
-export default function VideoPlayer({
+function VideoPlayer({
   videoRef,
   src,
   speed,
@@ -81,3 +81,5 @@ export default function VideoPlayer({
     />
   )
 }
+
+export default memo(VideoPlayer)

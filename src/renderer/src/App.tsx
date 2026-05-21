@@ -1,20 +1,22 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import React, { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense } from 'react'
 import DropZone from './components/DropZone'
 import VideoPlayer from './components/VideoPlayer'
 import Timeline from './components/Timeline'
 import Toolbar from './components/Toolbar'
-import Filters from './components/Filters'
-import GeometrySettings from './components/GeometrySettings'
 import CompositionGrid from './components/CompositionGrid'
-import ExportModal from './components/ExportModal'
-import CropOverlay from './components/CropOverlay'
 import CropFrame from './components/CropFrame'
 import VideoControls from './components/VideoControls'
 import Toast from './components/Toast'
+import { UndoIcon, RedoIcon } from './components/icons'
 import { useEditorHistory } from './hooks/useHistory'
 import { getKeptSegments, getVirtualDuration, realToVirtual, virtualToReal } from './utils/time'
 import { useT } from './i18n'
 import './styles/App.css'
+
+const ExportModal = lazy(() => import('./components/ExportModal'))
+const Filters = lazy(() => import('./components/Filters'))
+const GeometrySettings = lazy(() => import('./components/GeometrySettings'))
+const CropOverlay = lazy(() => import('./components/CropOverlay'))
 
 export interface TrimSegment {
   id: string
@@ -44,27 +46,31 @@ export interface EditorState {
   perspectiveVertical: number
 }
 
+type ActivePanel = 'crop' | 'filters' | 'geometry' | null
+
 const isMac = navigator.platform.includes('Mac')
 
 export default function App() {
   const { t } = useT()
   const fullscreenHint = isMac ? t.fullscreen_hint_mac : t.fullscreen_hint_linux
+
   const [videoPath, setVideoPath] = useState<string | null>(null)
-  const [videoUrl,  setVideoUrl]  = useState<string | null>(null)
-  const [duration,  setDuration]  = useState(0)
+  const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
-  const [isPlaying,   setIsPlaying]   = useState(false)
-  const [showExport,     setShowExport]     = useState(false)
-  const [showCrop,       setShowCrop]       = useState(false)
-  const [showFilters,    setShowFilters]    = useState(false)
-  const [showGeometry,   setShowGeometry]   = useState(false)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [showExport, setShowExport] = useState(false)
+  const [activePanel, setActivePanel] = useState<ActivePanel>(null)
   const [filterFrameUrl, setFilterFrameUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState<{ msg: string; progress: number } | null>(null)
-  const [toast,   setToast]   = useState<string | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
 
-  // All editable properties share one undo/redo history
   const { editable, set, undo, redo, reset, canUndo, canRedo } = useEditorHistory()
+
+  const showCrop = activePanel === 'crop'
+  const showFilters = activePanel === 'filters'
+  const showGeometry = activePanel === 'geometry'
 
   const captureFrame = useCallback(() => {
     const video = videoRef.current
@@ -78,44 +84,54 @@ export default function App() {
     setFilterFrameUrl(canvas.toDataURL('image/jpeg', 0.8))
   }, [])
 
-  // Convenience setters — each one is undoable
-  const setSpeed       = (speed: number)              => set(p => ({ ...p, speed }))
-  const setMuted       = (muted: boolean)              => set(p => ({ ...p, muted }))
-  const setCrop        = (crop: CropRect | null)       => set(p => ({ ...p, crop }))
-  const setCutSegments = (cutSegments: TrimSegment[])  => set(p => ({ ...p, cutSegments }))
-  const setFilter      = (filter: string)              => set(p => ({ ...p, filter }))
-  const setRotation    = (rotation: number)            => set(p => ({ ...p, rotation }))
-  const setStraighten  = (val: number)                 => set(p => ({ ...p, straighten: val }))
-  const setPerspectiveH = (val: number)                => set(p => ({ ...p, perspectiveHorizontal: val }))
-  const setPerspectiveV = (val: number)                => set(p => ({ ...p, perspectiveVertical: val }))
-  const resetGeometry   = ()                           => set(p => ({ ...p, rotation: 0, straighten: 0, perspectiveHorizontal: 0, perspectiveVertical: 0 }))
+  // Stable, undoable setters — each one snapshots the previous state onto the history stack
+  const setSpeed = useCallback((speed: number) => set(p => ({ ...p, speed })), [set])
+  const toggleMuted = useCallback(() => set(p => ({ ...p, muted: !p.muted })), [set])
+  const setCrop = useCallback((crop: CropRect | null) => set(p => ({ ...p, crop })), [set])
+  const setCutSegments = useCallback((cutSegments: TrimSegment[]) => set(p => ({ ...p, cutSegments })), [set])
+  const setFilter = useCallback((filter: string) => set(p => ({ ...p, filter })), [set])
+  const setRotation = useCallback((rotation: number) => set(p => ({ ...p, rotation })), [set])
+  const setStraighten = useCallback((val: number) => set(p => ({ ...p, straighten: val })), [set])
+  const setPerspectiveH = useCallback((val: number) => set(p => ({ ...p, perspectiveHorizontal: val })), [set])
+  const setPerspectiveV = useCallback((val: number) => set(p => ({ ...p, perspectiveVertical: val })), [set])
+  const resetGeometry = useCallback(() => set(p => ({
+    ...p, rotation: 0, straighten: 0, perspectiveHorizontal: 0, perspectiveVertical: 0,
+  })), [set])
+
+  // Panel toggles — switching panels is a single state update
+  const onCropToggle = useCallback(() => setActivePanel(p => p === 'crop' ? null : 'crop'), [])
+  const onCropReset = useCallback(() => { setCrop(null); setActivePanel(p => p === 'crop' ? null : p) }, [setCrop])
+  const onFilterToggle = useCallback(() => {
+    setActivePanel(p => {
+      if (p === 'filters') return null
+      captureFrame()
+      return 'filters'
+    })
+  }, [captureFrame])
+  const onGeometryToggle = useCallback(() => setActivePanel(p => p === 'geometry' ? null : 'geometry'), [])
 
   // ─── Load video ────────────────────────────────────────────────────────────
   const loadVideo = useCallback(async (filePath: string) => {
     setLoading({ msg: t.loading_preparing, progress: 0 })
     setIsPlaying(false)
-    setShowCrop(false)
-    setShowFilters(false)
-    setShowGeometry(false)
+    setActivePanel(null)
     reset()
 
     try {
       const off = window.electronAPI.onPreviewProgress((p) =>
-        setLoading({ msg: 'Preparing video…', progress: p })
+        setLoading({ msg: t.loading_preparing, progress: p }),
       )
       const previewPath = await window.electronAPI.previewVideo(filePath)
       off()
       setVideoPath(filePath)
       setVideoUrl(`file://${previewPath}`)
-      setDuration(0)
-      setCurrentTime(0)
     } catch (err) {
       console.error('Preview transcode failed:', err)
       setVideoPath(filePath)
       setVideoUrl(`file://${filePath}`)
+    } finally {
       setDuration(0)
       setCurrentTime(0)
-    } finally {
       setLoading(null)
     }
   }, [t, reset])
@@ -136,43 +152,44 @@ export default function App() {
     return () => offs.forEach(off => off())
   }, [loadVideo, undo, redo, fullscreenHint])
 
-  // Sync undo/redo state to native menu
   useEffect(() => {
     window.electronAPI.setUndoRedoState(canUndo, canRedo)
   }, [canUndo, canRedo])
 
-  // Kept segments = inverse of cuts. Recomputed whenever cuts or duration change.
+  // Kept segments = inverse of cuts.
   const keptSegments = useMemo(
     () => getKeptSegments(editable.cutSegments, duration),
-    [editable.cutSegments, duration]
+    [editable.cutSegments, duration],
   )
   const virtualDuration = useMemo(() => getVirtualDuration(keptSegments), [keptSegments])
-  const virtualCurrentTime = useMemo(() => realToVirtual(currentTime, keptSegments), [currentTime, keptSegments])
+  const virtualCurrentTime = useMemo(
+    () => realToVirtual(currentTime, keptSegments),
+    [currentTime, keptSegments],
+  )
 
-  // Seek in real-time space (used by Timeline & CutEditor).
+  // Real-time space — used by Timeline & CutEditor.
   const seek = useCallback((time: number) => {
     if (videoRef.current) videoRef.current.currentTime = time
   }, [])
 
-  // Seek in virtual-time space (used by VideoControls seekbar).
+  // Virtual-time space — used by VideoControls seekbar.
   const seekVirtual = useCallback((virtualTime: number) => {
     if (!videoRef.current) return
     videoRef.current.currentTime = virtualToReal(virtualTime, keptSegments)
   }, [keptSegments])
 
-  // Skip over cut zones during playback and stop at end of last kept segment.
+  // Skip cut zones during playback; stop at the end of the last kept segment.
   const handleTimeUpdate = useCallback((realTime: number) => {
     setCurrentTime(realTime)
     const cuts = editable.cutSegments
-    if (!cuts.length || !videoRef.current || videoRef.current.paused) return
     const video = videoRef.current
+    if (!cuts.length || !video || video.paused) return
     for (const cut of cuts) {
       if (realTime >= cut.start && realTime < cut.end) {
         video.currentTime = cut.end
         return
       }
     }
-    // Stop when we reach the end of the last kept segment (if a cut ends the video).
     const lastKept = keptSegments[keptSegments.length - 1]
     if (lastKept && realTime >= lastKept.end) {
       video.pause()
@@ -180,22 +197,37 @@ export default function App() {
     }
   }, [editable.cutSegments, keptSegments])
 
-  const editorState: EditorState = {
+  const handlePlayPause = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+    if (isPlaying) {
+      video.pause()
+    } else {
+      if (video.ended) video.currentTime = keptSegments[0]?.start ?? 0
+      void video.play()
+    }
+  }, [isPlaying, keptSegments])
+
+  const openExport = useCallback(() => setShowExport(true), [])
+  const closeExport = useCallback(() => setShowExport(false), [])
+  const onApplyCrop = useCallback(() => setActivePanel(null), [])
+  const onToastDone = useCallback(() => setToast(null), [])
+
+  const editorState = useMemo<EditorState>(() => ({
     videoPath,
     videoUrl,
     duration,
-    speed:                editable.speed,
-    muted:                editable.muted,
-    cutSegments:          editable.cutSegments,
-    crop:                 editable.crop,
-    filter:               editable.filter,
-    rotation:             editable.rotation,
-    straighten:           editable.straighten,
+    speed: editable.speed,
+    muted: editable.muted,
+    cutSegments: editable.cutSegments,
+    crop: editable.crop,
+    filter: editable.filter,
+    rotation: editable.rotation,
+    straighten: editable.straighten,
     perspectiveHorizontal: editable.perspectiveHorizontal,
-    perspectiveVertical:  editable.perspectiveVertical,
-  }
+    perspectiveVertical: editable.perspectiveVertical,
+  }), [videoPath, videoUrl, duration, editable])
 
-  // ─── Loading screen ────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="loading-screen">
@@ -218,26 +250,20 @@ export default function App() {
 
   return (
     <div className="app-layout">
-      {/* Top bar */}
       <div className="top-bar">
         <div className="app-title">LightCutVidz</div>
         <div className="top-bar-actions">
           <button className="btn-ghost btn-icon" onClick={undo} disabled={!canUndo} title={t.app_undo}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>
-            </svg>
+            <UndoIcon />
           </button>
           <button className="btn-ghost btn-icon" onClick={redo} disabled={!canRedo} title={t.app_redo}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/>
-            </svg>
+            <RedoIcon />
           </button>
           <button className="btn-ghost" onClick={handleOpenVideo}>{t.app_open_video}</button>
-          <button className="btn-primary" onClick={() => setShowExport(true)}>{t.app_export}</button>
+          <button className="btn-primary" onClick={openExport}>{t.app_export}</button>
         </div>
       </div>
 
-      {/* Main area */}
       <div className="main-area">
         <div className="video-wrapper">
           <VideoPlayer
@@ -256,12 +282,14 @@ export default function App() {
           />
           <CompositionGrid visible={showCrop || showGeometry} />
           {showCrop && (
-            <CropOverlay
-              videoRef={videoRef}
-              crop={editable.crop}
-              onChange={setCrop}
-              onApply={() => setShowCrop(false)}
-            />
+            <Suspense fallback={null}>
+              <CropOverlay
+                videoRef={videoRef}
+                crop={editable.crop}
+                onChange={setCrop}
+                onApply={onApplyCrop}
+              />
+            </Suspense>
           )}
           {!showCrop && editable.crop && (
             <CropFrame videoRef={videoRef} crop={editable.crop} />
@@ -274,55 +302,48 @@ export default function App() {
           showFilters={showFilters}
           showGeometry={showGeometry}
           onSpeedChange={setSpeed}
-          onMuteToggle={() => setMuted(!editable.muted)}
-          onCropToggle={() => { setShowCrop(v => !v); setShowFilters(false); setShowGeometry(false) }}
-          onCropReset={() => { setCrop(null); setShowCrop(false) }}
-          onFilterToggle={() => { if (!showFilters) captureFrame(); setShowFilters(v => !v); setShowCrop(false); setShowGeometry(false) }}
-          onGeometryToggle={() => { setShowGeometry(v => !v); setShowCrop(false); setShowFilters(false) }}
+          onMuteToggle={toggleMuted}
+          onCropToggle={onCropToggle}
+          onCropReset={onCropReset}
+          onFilterToggle={onFilterToggle}
+          onGeometryToggle={onGeometryToggle}
         />
 
         {showFilters && (
-          <Filters
-            activeFilterId={editable.filter}
-            onSelect={setFilter}
-            frameDataUrl={filterFrameUrl ?? undefined}
-          />
+          <Suspense fallback={null}>
+            <Filters
+              activeFilterId={editable.filter}
+              onSelect={setFilter}
+              frameDataUrl={filterFrameUrl ?? undefined}
+            />
+          </Suspense>
         )}
 
         {showGeometry && (
-          <GeometrySettings
-            rotation={editable.rotation}
-            straighten={editable.straighten}
-            perspectiveH={editable.perspectiveHorizontal}
-            perspectiveV={editable.perspectiveVertical}
-            onRotationChange={setRotation}
-            onStraightenChange={setStraighten}
-            onPerspectiveHChange={setPerspectiveH}
-            onPerspectiveVChange={setPerspectiveV}
-            onReset={resetGeometry}
-          />
+          <Suspense fallback={null}>
+            <GeometrySettings
+              rotation={editable.rotation}
+              straighten={editable.straighten}
+              perspectiveH={editable.perspectiveHorizontal}
+              perspectiveV={editable.perspectiveVertical}
+              onRotationChange={setRotation}
+              onStraightenChange={setStraighten}
+              onPerspectiveHChange={setPerspectiveH}
+              onPerspectiveVChange={setPerspectiveV}
+              onReset={resetGeometry}
+            />
+          </Suspense>
         )}
       </div>
 
-      {/* Seekbar + play/pause — uses virtual time to reflect trim */}
       <VideoControls
         currentTime={virtualCurrentTime}
         duration={virtualDuration}
         isPlaying={isPlaying}
-        onPlayPause={() => {
-          const video = videoRef.current
-          if (!video) return
-          if (isPlaying) {
-            video.pause()
-          } else {
-            if (video.ended) video.currentTime = keptSegments[0]?.start ?? 0
-            void video.play()
-          }
-        }}
+        onPlayPause={handlePlayPause}
         onSeek={seekVirtual}
       />
 
-      {/* Trim timeline */}
       <div className="timeline-section">
         <Timeline
           duration={duration}
@@ -335,13 +356,12 @@ export default function App() {
       </div>
 
       {showExport && (
-        <ExportModal
-          state={editorState}
-          onClose={() => setShowExport(false)}
-        />
+        <Suspense fallback={null}>
+          <ExportModal state={editorState} onClose={closeExport} />
+        </Suspense>
       )}
 
-      {toast && <Toast message={toast} onDone={() => setToast(null)} />}
+      {toast && <Toast message={toast} onDone={onToastDone} />}
     </div>
   )
 }

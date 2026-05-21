@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useState, useLayoutEffect } from 'react'
+import React, { memo, useRef, useCallback, useState, useLayoutEffect } from 'react'
 import type { TrimSegment } from '../App'
 import { formatTime, parseTimeInput } from '../utils/time'
 import { mergeSegments } from '../utils/timeline'
@@ -24,7 +24,7 @@ type DragMode =
 
 const MIN_CUT = 0.05
 
-export default function Timeline({
+function Timeline({
   duration, currentTime, cutSegments,
   videoUrl, onSeek, onCutSegmentsChange,
 }: Props) {
@@ -232,6 +232,8 @@ export default function Timeline({
     </div>
   )
 }
+
+export default memo(Timeline)
 
 // ─── TimeRuler ────────────────────────────────────────────────────────────────
 

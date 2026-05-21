@@ -1,5 +1,6 @@
 import React from 'react'
 import { useT } from '../i18n'
+import { RotateIcon } from './icons'
 import './GeometrySettings.css'
 
 interface Props {
@@ -38,10 +39,7 @@ export default function GeometrySettings({
           <label>{t.geometry_rotate}</label>
           <div className="rotate-control">
             <button className="btn-secondary btn-icon" onClick={handleRotate} title={t.geometry_rotate}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M23 4v6h-6"></path>
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-              </svg>
+              <RotateIcon />
             </button>
             <span className="geometry-value">{rotation}°</span>
           </div>

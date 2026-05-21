@@ -1,5 +1,6 @@
-import React, { useCallback, useRef, useState } from 'react'
+import React, { memo, useCallback, useRef, useState } from 'react'
 import { formatTime } from '../utils/time'
+import { PlayIcon, PauseIcon } from './icons'
 import './VideoControls.css'
 
 interface Props {
@@ -10,7 +11,7 @@ interface Props {
   onSeek: (time: number) => void
 }
 
-export default function VideoControls({ currentTime, duration, isPlaying, onPlayPause, onSeek }: Props) {
+function VideoControls({ currentTime, duration, isPlaying, onPlayPause, onSeek }: Props) {
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0
   const seekbarRef = useRef<HTMLDivElement>(null)
   const isDragging = useRef(false)
@@ -65,16 +66,7 @@ export default function VideoControls({ currentTime, duration, isPlaying, onPlay
       {/* Controls row */}
       <div className="controls-row">
         <button className="vc-btn play-btn" onClick={onPlayPause}>
-          {isPlaying ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="6" y="4" width="4" height="16" rx="1"/>
-              <rect x="14" y="4" width="4" height="16" rx="1"/>
-            </svg>
-          ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-              <polygon points="5 3 19 12 5 21 5 3"/>
-            </svg>
-          )}
+          {isPlaying ? <PauseIcon /> : <PlayIcon />}
         </button>
 
         <span className="vc-time">
@@ -86,3 +78,5 @@ export default function VideoControls({ currentTime, duration, isPlaying, onPlay
     </div>
   )
 }
+
+export default memo(VideoControls)

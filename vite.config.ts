@@ -16,6 +16,18 @@ export default defineConfig({
   build: {
     outDir: '../../dist',
     emptyOutDir: true,
+    cssCodeSplit: true,
+    target: 'es2020',
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/')) {
+            return 'react'
+          }
+        },
+      },
+    },
   },
   server: {
     port: 5173,

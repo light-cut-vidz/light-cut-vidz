@@ -46,6 +46,9 @@ export default [
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       'no-unused-vars': 'off',
+      // TypeScript already catches undefined identifiers/types; the lint rule
+      // doesn't understand TS type-only references like `NodeListOf` or `DOMRect`.
+      'no-undef': 'off',
     },
   },
   {

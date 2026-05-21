@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { memo, useEffect, useRef, useState } from 'react'
 import './FilmStrip.css'
 
 interface Props {
@@ -10,7 +10,7 @@ interface Props {
 const THUMB_W = 80
 const THUMB_H = 45
 
-export default function FilmStrip({ videoUrl, duration, trackWidth }: Props) {
+function FilmStrip({ videoUrl, duration, trackWidth }: Props) {
   const [thumbs, setThumbs] = useState<string[]>([])
   const abortRef = useRef(false)
 
@@ -65,3 +65,5 @@ export default function FilmStrip({ videoUrl, duration, trackWidth }: Props) {
     </div>
   )
 }
+
+export default memo(FilmStrip)

@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react'
 import { useT } from '../i18n'
+import { VideoIcon } from './icons'
 import './DropZone.css'
 
 interface Props {
@@ -37,9 +38,7 @@ export default function DropZone({ onDrop, onOpen }: Props) {
     >
       <div className="dropzone-inner">
         <div className="dropzone-icon">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
-          </svg>
+          <VideoIcon />
         </div>
         <h2 className="dropzone-title">LightCutVidz</h2>
         <p className="dropzone-subtitle">{t.dropzone_subtitle}</p>
