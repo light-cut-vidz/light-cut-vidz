@@ -32,11 +32,10 @@ Grab the latest build from the [Releases page](https://github.com/light-cut-vidz
 | Platform | File |
 |----------|------|
 | macOS — Apple Silicon (M1/M2/M3/M4) | `LightCutVidz-mac-arm64.dmg` |
-| macOS — Intel (2019 and earlier)     | `LightCutVidz-mac-x64.dmg` |
 | Linux (Ubuntu / Debian) | `lightcutvidz_x.x.x_amd64.deb` |
 | Linux (other) | `LightCutVidz-x.x.x.AppImage` |
 
-> **Not sure which Mac you have?** Click the Apple menu → **About This Mac**. If it says "Apple M…" → arm64. If it says "Intel" → x64.
+> macOS Intel (x64) is no longer supported. The latest version supporting Intel Macs is v1.1.0.
 
 ### macOS — Homebrew (recommended)
 
@@ -46,7 +45,7 @@ brew install --cask light-cut-vidz/tap/lightcutvidz
 
 ### macOS — DMG (manual)
 
-1. Download the DMG matching your Mac (see table above)
+1. Download the DMG (Apple Silicon only — see table above)
 2. Open the DMG and drag **LightCutVidz** into your **Applications** folder
 3. **First launch only** (Gatekeeper bypass — the app is not Apple-signed):
    - **Right-click** the app → **Open**
@@ -278,7 +277,7 @@ npm run build
 
 Outputs to `dist-app/`:
 - **Linux** → `LightCutVidz-x.x.x.AppImage` + `lightcutvidz_x.x.x_amd64.deb`
-- **macOS** → `LightCutVidz-mac-arm64.dmg` (Apple Silicon) + `LightCutVidz-mac-x64.dmg` (Intel)
+- **macOS** → `LightCutVidz-mac-arm64.dmg` (Apple Silicon)
 
 ### Scripts
 

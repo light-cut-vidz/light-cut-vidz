@@ -1,15 +1,10 @@
 cask "lightcutvidz" do
   version "VERSION_NUM"
 
-  on_arm do
-    url "https://github.com/light-cut-vidz/light-cut-vidz/releases/download/vVERSION_NUM/LightCutVidz-mac-arm64.dmg"
-    sha256 "SHA256_ARM64"
-  end
+  url "https://github.com/light-cut-vidz/light-cut-vidz/releases/download/vVERSION_NUM/LightCutVidz-mac-arm64.dmg"
+  sha256 "SHA256_ARM64"
 
-  on_intel do
-    url "https://github.com/light-cut-vidz/light-cut-vidz/releases/download/vVERSION_NUM/LightCutVidz-mac-x64.dmg"
-    sha256 "SHA256_X64"
-  end
+  depends_on arch: :arm64
 
   name "LightCutVidz"
   desc "Lightweight video editor desktop app"

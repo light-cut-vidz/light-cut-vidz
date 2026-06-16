@@ -24,12 +24,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release-mac:
-    name: Build macOS DMG (${{ matrix.arch }})
+    name: Build macOS DMG (arm64)
     needs: [create-release]
     runs-on: macos-latest
-    strategy:
-      matrix:
-        arch: [x64, arm64]
     steps:
       - uses: actions/checkout@v4
 
@@ -47,14 +44,7 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
         env:
-          npm_config_arch: ${{ matrix.arch }}
-
-      - name: Install ffprobe darwin-x64 (cross-compile workaround)
-        if: matrix.arch == 'x64'
-        run: |
-          TARBALL=$(curl -sf https://registry.npmjs.org/@ffprobe-installer/darwin-x64/latest | python3 -c "import sys,json;print(json.load(sys.stdin)['dist']['tarball'])")
-          mkdir -p node_modules/@ffprobe-installer/darwin-x64
-          curl -sL "$TARBALL" | tar xz --strip-components=1 -C node_modules/@ffprobe-installer/darwin-x64
+          npm_config_arch: arm64
 
       - name: Check code signing availability
         id: csc
@@ -71,13 +61,13 @@ jobs:
           echo "APPLE_APP_SPECIFIC_PASSWORD=${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" >> $GITHUB_ENV
           echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> $GITHUB_ENV
 
-      - name: Build DMG (${{ matrix.arch }})
-        run: npm run vite:build && npx electron-builder --mac dmg --${{ matrix.arch }} --publish never
+      - name: Build DMG (arm64)
+        run: npm run vite:build && npx electron-builder --mac dmg --arm64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.csc.outputs.enabled }}
 
       - name: Upload DMG to GitHub Release
-        run: gh release upload "${{ github.ref_name }}" dist-app/LightCutVidz-mac-${{ matrix.arch }}.dmg --clobber
+        run: gh release upload "${{ github.ref_name }}" dist-app/LightCutVidz-mac-arm64.dmg --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -184,13 +174,10 @@ jobs:
         run: |
           VERSION_NUM=${VERSION#v}
           ARM64_URL="https://github.com/light-cut-vidz/light-cut-vidz/releases/download/${VERSION}/LightCutVidz-mac-arm64.dmg"
-          X64_URL="https://github.com/light-cut-vidz/light-cut-vidz/releases/download/${VERSION}/LightCutVidz-mac-x64.dmg"
 
           curl -fsSL -o arm64.dmg "$ARM64_URL"
-          curl -fsSL -o x64.dmg "$X64_URL"
 
           SHA256_ARM64=$(sha256sum arm64.dmg | awk '{print $1}')
-          SHA256_X64=$(sha256sum x64.dmg | awk '{print $1}')
 
           git clone "https://x-access-token:${GH_TOKEN}@github.com/light-cut-vidz/homebrew-tap.git"
           mkdir -p homebrew-tap/Casks
@@ -198,7 +185,6 @@ jobs:
           sed \
             -e "s/VERSION_NUM/${VERSION_NUM}/g" \
             -e "s/SHA256_ARM64/${SHA256_ARM64}/g" \
-            -e "s/SHA256_X64/${SHA256_X64}/g" \
             .github/homebrew/lightcutvidz.rb.tmpl \
             > homebrew-tap/Casks/lightcutvidz.rb
 

@@ -1,6 +1,6 @@
 {
   "name": "lightcutvidz",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Lightweight video editor desktop app",
   "main": "src/main/index.js",
   "scripts": {
@@ -74,7 +74,6 @@
         {
           "target": "dmg",
           "arch": [
-            "x64",
             "arm64"
           ]
         }
