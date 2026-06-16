@@ -61,10 +61,22 @@ jobs:
           echo "APPLE_APP_SPECIFIC_PASSWORD=${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" >> $GITHUB_ENV
           echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> $GITHUB_ENV
 
-      - name: Build DMG (arm64)
-        run: npm run vite:build && npx electron-builder --mac dmg --arm64 --publish never
+      - name: Build app bundle (arm64)
+        run: npm run vite:build && npx electron-builder --mac dir --arm64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.csc.outputs.enabled }}
+
+      - name: Ad-hoc sign app (no Apple Developer certificate)
+        if: steps.csc.outputs.enabled == 'false'
+        run: codesign --force --deep --sign - "dist-app/mac-arm64/LightCutVidz.app"
+
+      - name: Package DMG (arm64)
+        run: |
+          hdiutil create \
+            -volname "LightCutVidz" \
+            -srcfolder "dist-app/mac-arm64/LightCutVidz.app" \
+            -ov -format UDZO \
+            "dist-app/LightCutVidz-mac-arm64.dmg"
 
       - name: Upload DMG to GitHub Release
         run: gh release upload "${{ github.ref_name }}" dist-app/LightCutVidz-mac-arm64.dmg --clobber
