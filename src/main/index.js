@@ -18,7 +18,10 @@ ffmpeg.setFfmpegPath(fixAsarPath(ffmpegStatic))
 ffmpeg.setFfprobePath(fixAsarPath(ffprobeInstaller.path))
 
 const isDev = process.env.NODE_ENV === 'development'
-const isHomebrew = process.platform === 'darwin' && process.execPath.includes('/Caskroom/')
+const isHomebrew = process.platform === 'darwin' && (
+  fs.existsSync('/opt/homebrew/Caskroom/lightcutvidz') ||
+  fs.existsSync('/usr/local/Caskroom/lightcutvidz')
+)
 const isDmg = process.platform === 'darwin' && !isHomebrew
 const isAppImage = process.platform === 'linux' && !!process.env.APPIMAGE
 const isDeb = process.platform === 'linux' && !isAppImage
