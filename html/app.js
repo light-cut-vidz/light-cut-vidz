@@ -32,7 +32,7 @@ applyLang()
 // ── Copy install commands ─────────────────────────────────────────────────────
 
 document.querySelectorAll('.copy-btn').forEach(btn => {
-  const cmdEl = btn.closest('.installer-cmd').querySelector('.copy-target')
+  const cmdEl = btn.closest('.installer-cmd, .install-hero-cmd').querySelector('.copy-target')
   btn.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(cmdEl.textContent.trim())
