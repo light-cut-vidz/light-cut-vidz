@@ -130,7 +130,13 @@ async function _upgradeDmg({ dialog, app, win, t, fromMenu, _fetchJson = fetchJs
   }
 }
 
-async function _upgradeHomebrew({ dialog, app, win, t, fromMenu, _exec = exec, _fetchJson = fetchJson }) {
+function getBrewPath() {
+  if (fs.existsSync('/opt/homebrew/bin/brew')) return '/opt/homebrew/bin/brew'
+  if (fs.existsSync('/usr/local/bin/brew')) return '/usr/local/bin/brew'
+  return 'brew'
+}
+
+async function _upgradeHomebrew({ dialog, app, win, t, fromMenu, _exec = exec, _fetchJson = fetchJson, _brewPath = getBrewPath() }) {
   let latest
   try {
     const data = await _fetchJson(`https://api.github.com/repos/${REPO}/releases/latest`)
@@ -169,7 +175,7 @@ async function _upgradeHomebrew({ dialog, app, win, t, fromMenu, _exec = exec, _
   })
 
   await new Promise((resolve) => {
-    _exec('brew upgrade --cask lightcutvidz', (err) => {
+    _exec(`${_brewPath} upgrade --cask lightcutvidz`, (err) => {
       if (err) {
         dialog.showMessageBox(win, { type: 'error', title: t('update_failed_title'), message: String(err.message || err) })
         return resolve()
