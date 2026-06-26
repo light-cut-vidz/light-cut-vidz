@@ -55,6 +55,14 @@ describe('setupAutoUpdater', () => {
     )
   })
 
+  it('silently ignores ENOENT errors (app-update.yml missing)', () => {
+    const deps = makeDeps()
+    setupAutoUpdater(deps)
+    const err = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' })
+    deps.autoUpdater.handlers.error(err)
+    expect(deps.dialog.showMessageBox).not.toHaveBeenCalled()
+  })
+
   it('marks state.updateDownloaded=true on update-downloaded', () => {
     const deps = makeDeps()
     setupAutoUpdater(deps)
@@ -144,6 +152,23 @@ describe('checkForUpdates', () => {
 
   it('stays silent when check throws (not from menu)', async () => {
     deps.autoUpdater.checkForUpdates.mockRejectedValue(new Error('boom'))
+    await checkForUpdates({ ...deps, fromMenu: false })
+    expect(deps.dialog.showMessageBox).not.toHaveBeenCalled()
+  })
+
+  it('shows update_no_config_msg when app-update.yml is missing (from menu)', async () => {
+    const err = Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' })
+    deps.autoUpdater.checkForUpdates.mockRejectedValue(err)
+    await checkForUpdates({ ...deps, fromMenu: true })
+    expect(deps.dialog.showMessageBox).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ type: 'error', message: 'update_no_config_msg' }),
+    )
+  })
+
+  it('stays silent when app-update.yml is missing (not from menu)', async () => {
+    const err = Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+    deps.autoUpdater.checkForUpdates.mockRejectedValue(err)
     await checkForUpdates({ ...deps, fromMenu: false })
     expect(deps.dialog.showMessageBox).not.toHaveBeenCalled()
   })

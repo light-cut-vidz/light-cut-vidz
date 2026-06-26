@@ -23,6 +23,9 @@ function setupAutoUpdater({ autoUpdater, dialog, getWindow, t, state }) {
   autoUpdater.autoInstallOnAppQuit = true
 
   autoUpdater.on('error', (err) => {
+    // app-update.yml absent in DMG builds that predate the publish config — ignore silently.
+    // The user-triggered path (checkForUpdates fromMenu) handles this case with a proper message.
+    if (err.code === 'ENOENT') return
     dialog.showMessageBox(getWindow(), {
       type: 'error',
       title: t('update_failed_title'),
@@ -90,7 +93,10 @@ async function checkForUpdates({ autoUpdater, dialog, app, getWindow, t, state, 
     }
   } catch (err) {
     if (fromMenu) {
-      dialog.showMessageBox(win, { type: 'error', title: t('update_failed_title'), message: String(err.message || err) })
+      const msg = err.code === 'ENOENT'
+        ? t('update_no_config_msg')
+        : String(err.message || err)
+      dialog.showMessageBox(win, { type: 'error', title: t('update_failed_title'), message: msg })
     }
   }
 }
