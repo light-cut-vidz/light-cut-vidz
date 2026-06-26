@@ -17,7 +17,8 @@ if [ "$OS" = "Darwin" ]; then
     exit 1
   fi
   echo "Installing via Homebrew..."
-  brew tap --force light-cut-vidz/tap
+  brew untap light-cut-vidz/tap 2>/dev/null || true
+  brew tap light-cut-vidz/tap
   brew install --cask lightcutvidz
   echo ""
   echo "Done! Launch LightCutVidz from Spotlight or your Applications folder."
