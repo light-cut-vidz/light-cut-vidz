@@ -18,7 +18,9 @@ ffmpeg.setFfmpegPath(fixAsarPath(ffmpegStatic))
 ffmpeg.setFfprobePath(fixAsarPath(ffprobeInstaller.path))
 
 const isDev = process.env.NODE_ENV === 'development'
-const isSnap = !!process.env.SNAP
+const isHomebrew = process.platform === 'darwin' && process.execPath.includes('/Caskroom/')
+const isAppImage = process.platform === 'linux' && !!process.env.APPIMAGE
+const isDeb = process.platform === 'linux' && !isAppImage
 
 let currentLang = 'en'
 let win = null
@@ -37,7 +39,7 @@ setupAutoUpdater({
 })
 
 const checkUpdates = (fromMenu = false) => checkForUpdates({
-  autoUpdater, dialog, app, getWindow: () => win, t, state: updaterState, isDev, isSnap, fromMenu,
+  autoUpdater, dialog, app, getWindow: () => win, t, state: updaterState, isDev, isHomebrew, isDeb, fromMenu,
 })
 
 // ─── Window ───────────────────────────────────────────────────────────────────
@@ -93,7 +95,6 @@ function rebuildMenu() {
   buildMenu({
     t,
     currentLang,
-    isSnap,
     onOpenVideo: (focused, filePath) => focused.webContents.send('menu:openVideo', filePath),
     onUndo: (focused) => focused?.webContents.send('menu:undo'),
     onRedo: (focused) => focused?.webContents.send('menu:redo'),

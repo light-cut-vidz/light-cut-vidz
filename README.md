@@ -37,10 +37,21 @@ Grab the latest build from the [Releases page](https://github.com/light-cut-vidz
 
 > macOS Intel (x64) is no longer supported. The latest version supporting Intel Macs is v1.1.0.
 
-### macOS — Homebrew (recommended)
+### One-line installer (macOS & Linux)
 
 ```bash
-brew install --cask light-cut-vidz/tap/lightcutvidz
+curl -fsSL https://raw.githubusercontent.com/light-cut-vidz/light-cut-vidz/main/install.sh | bash
+```
+
+- **macOS** — installs via Homebrew (requires [Homebrew](https://brew.sh))
+- **Linux (Ubuntu / Debian)** — downloads and installs the `.deb` package
+- **Linux (other)** — downloads the `.AppImage`, registers it in your applications menu
+
+### macOS — Homebrew (manual)
+
+```bash
+brew tap light-cut-vidz/tap
+brew install --cask lightcutvidz
 ```
 
 ### macOS — DMG (manual)
@@ -53,25 +64,6 @@ brew install --cask light-cut-vidz/tap/lightcutvidz
 4. From then on, double-clicking works normally
 
 > LightCutVidz is open-source. No Apple certificate is applied.
-
-### Linux — Snap (recommended)
-
-```bash
-sudo snap install lightcutvidz
-```
-
-### Linux — One-line installer
-
-Works on Ubuntu, Debian, Fedora, Arch and most other distributions:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/light-cut-vidz/light-cut-vidz/main/install.sh | bash
-```
-
-This script automatically:
-- Detects your distribution
-- Downloads the `.deb` (Ubuntu/Debian) or `.AppImage` (others)
-- Installs it and adds a launcher entry to your applications menu
 
 ### Linux — Manual install
 
@@ -223,19 +215,13 @@ Drag **LightCutVidz** from your **Applications** folder to the Trash, or run:
 rm -rf /Applications/LightCutVidz.app
 ```
 
-### Linux — Snap
-
-```bash
-sudo snap remove lightcutvidz
-```
-
-### Linux — Ubuntu / Debian (installed via `.deb` or the one-line installer)
+### Linux — Ubuntu / Debian (`.deb` or one-line installer)
 
 ```bash
 sudo apt remove lightcutvidz
 ```
 
-### Linux — AppImage (installed manually)
+### Linux — AppImage (one-line installer or manual)
 
 ```bash
 rm ~/.local/bin/LightCutVidz.AppImage

@@ -5,7 +5,6 @@ function makeOpts(overrides = {}) {
   return {
     t: (key) => key,
     currentLang: 'en',
-    isSnap: false,
     onOpenVideo: vi.fn(),
     onUndo: vi.fn(),
     onRedo: vi.fn(),
@@ -45,18 +44,11 @@ describe('buildMenuTemplate', () => {
     expect(en.checked).toBe(false)
   })
 
-  it('disables "Check for updates" on snap', () => {
-    const tpl = buildMenuTemplate(makeOpts({ isSnap: true }))
+  it('"Check for updates" is always enabled', () => {
+    const tpl = buildMenuTemplate(makeOpts())
     const help = tpl.find(m => m.label === 'menu_help')
     const item = help.submenu.find(s => s.label === 'menu_check_updates')
-    expect(item.enabled).toBe(false)
-  })
-
-  it('enables "Check for updates" off snap', () => {
-    const tpl = buildMenuTemplate(makeOpts({ isSnap: false }))
-    const help = tpl.find(m => m.label === 'menu_help')
-    const item = help.submenu.find(s => s.label === 'menu_check_updates')
-    expect(item.enabled).toBe(true)
+    expect(item.enabled).not.toBe(false)
   })
 
   it('undo/redo start disabled', () => {

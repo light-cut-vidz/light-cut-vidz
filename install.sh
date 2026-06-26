@@ -2,24 +2,41 @@
 set -e
 
 REPO="light-cut-vidz/light-cut-vidz"
-INSTALL_DIR="$HOME/.local/bin"
-DESKTOP_DIR="$HOME/.local/share/applications"
-ICON_DIR="$HOME/.local/share/icons/hicolor/512x512/apps"
 APP_NAME="lightcutvidz"
 
 echo "LightCutVidz installer"
-echo "=================="
+echo "======================"
 
-# ── Detect package manager ────────────────────────────────────────────────────
+OS="$(uname -s)"
+
+# ── macOS: install via Homebrew ────────────────────────────────────────────────
+if [ "$OS" = "Darwin" ]; then
+  if ! command -v brew &>/dev/null; then
+    echo "Homebrew is required. Install it first:"
+    echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+    exit 1
+  fi
+  echo "Installing via Homebrew..."
+  brew tap light-cut-vidz/tap 2>/dev/null || true
+  brew install --cask lightcutvidz
+  echo ""
+  echo "Done! Launch LightCutVidz from Spotlight or your Applications folder."
+  exit 0
+fi
+
+# ── Linux ──────────────────────────────────────────────────────────────────────
+INSTALL_DIR="$HOME/.local/bin"
+DESKTOP_DIR="$HOME/.local/share/applications"
+ICON_DIR="$HOME/.local/share/icons/hicolor/512x512/apps"
+
+# Detect package manager
 if command -v apt-get &>/dev/null; then
   FORMAT="deb"
-elif command -v dnf &>/dev/null || command -v yum &>/dev/null; then
-  FORMAT="AppImage"
 else
   FORMAT="AppImage"
 fi
 
-# ── Fetch latest release URL ──────────────────────────────────────────────────
+# Fetch latest release URL
 echo "Fetching latest release from GitHub..."
 API="https://api.github.com/repos/$REPO/releases/latest"
 
@@ -50,7 +67,7 @@ else
   wget -q --show-progress "$DOWNLOAD_URL" -O "$TMP_FILE"
 fi
 
-# ── Install ───────────────────────────────────────────────────────────────────
+# ── Install ────────────────────────────────────────────────────────────────────
 if [ "$FORMAT" = "deb" ]; then
   echo "Installing .deb package (requires sudo)..."
   sudo apt-get install -y "$TMP_FILE"
@@ -92,7 +109,7 @@ EOF
   # Ensure ~/.local/bin is in PATH
   if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     echo ""
-    echo "Add this line to your ~/.bashrc or ~/.zshrc to use 'lightcutvidz' from the terminal:"
+    echo "Add this to your ~/.bashrc or ~/.zshrc:"
     echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
   fi
 

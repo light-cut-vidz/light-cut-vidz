@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { setupAutoUpdater, checkForUpdates } from '../lib/updater.js'
+import { setupAutoUpdater, checkForUpdates, _upgradeHomebrew, _upgradeDeb } from '../lib/updater.js'
 
 function makeAutoUpdater() {
   const handlers = {}
@@ -18,12 +18,13 @@ function makeDeps(overrides = {}) {
   return {
     autoUpdater: makeAutoUpdater(),
     dialog: { showMessageBox: vi.fn().mockResolvedValue({ response: 0 }) },
-    app: { getVersion: () => '1.0.0' },
+    app: { getVersion: () => '1.0.0', relaunch: vi.fn(), exit: vi.fn() },
     getWindow: () => ({}),
     t: (key) => key,
     state: { updateDownloaded: false },
     isDev: false,
-    isSnap: false,
+    isHomebrew: false,
+    isDeb: false,
     fromMenu: false,
     ...overrides,
   }
@@ -71,9 +72,18 @@ describe('checkForUpdates', () => {
     expect(deps.autoUpdater.checkForUpdates).not.toHaveBeenCalled()
   })
 
-  it('skips on snap', async () => {
-    await checkForUpdates({ ...deps, isSnap: true })
+  it('skips electron-updater on homebrew', async () => {
+    const _homebrewHandler = vi.fn().mockResolvedValue(undefined)
+    await checkForUpdates({ ...deps, isHomebrew: true, _homebrewHandler })
     expect(deps.autoUpdater.checkForUpdates).not.toHaveBeenCalled()
+    expect(_homebrewHandler).toHaveBeenCalled()
+  })
+
+  it('skips electron-updater on deb', async () => {
+    const _debHandler = vi.fn().mockResolvedValue(undefined)
+    await checkForUpdates({ ...deps, isDeb: true, _debHandler })
+    expect(deps.autoUpdater.checkForUpdates).not.toHaveBeenCalled()
+    expect(_debHandler).toHaveBeenCalled()
   })
 
   it('re-prompts to install when an update is already downloaded', async () => {
@@ -109,7 +119,6 @@ describe('checkForUpdates', () => {
 
   it('prompts and downloads when a newer version is available', async () => {
     deps.autoUpdater.checkForUpdates.mockResolvedValue({ updateInfo: { version: '2.0.0' } })
-    // First message → confirm; Second → "downloading" notice
     deps.dialog.showMessageBox
       .mockResolvedValueOnce({ response: 0 })
       .mockResolvedValueOnce({ response: 0 })
@@ -137,5 +146,135 @@ describe('checkForUpdates', () => {
     deps.autoUpdater.checkForUpdates.mockRejectedValue(new Error('boom'))
     await checkForUpdates({ ...deps, fromMenu: false })
     expect(deps.dialog.showMessageBox).not.toHaveBeenCalled()
+  })
+})
+
+describe('_upgradeHomebrew', () => {
+  const win = {}
+  const baseOpts = (overrides = {}) => ({
+    dialog: { showMessageBox: vi.fn().mockResolvedValue({ response: 0 }) },
+    app: { getVersion: () => '1.0.0', relaunch: vi.fn(), exit: vi.fn() },
+    win,
+    t: (key) => key,
+    fromMenu: true,
+    ...overrides,
+  })
+
+  it('shows error when GitHub API fails', async () => {
+    const opts = baseOpts()
+    opts._fetchJson = vi.fn().mockRejectedValue(new Error('net'))
+    await _upgradeHomebrew(opts)
+    expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
+      win, expect.objectContaining({ type: 'error', title: 'update_failed_title' })
+    )
+  })
+
+  it('shows no update when already on latest', async () => {
+    const opts = baseOpts()
+    opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v1.0.0' })
+    await _upgradeHomebrew(opts)
+    expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
+      win, expect.objectContaining({ title: 'no_update_title' })
+    )
+  })
+
+  it('runs brew upgrade and relaunches when user accepts', async () => {
+    const opts = baseOpts()
+    opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v2.0.0' })
+    opts._exec = vi.fn((cmd, cb) => cb(null))
+    await _upgradeHomebrew(opts)
+    expect(opts._exec).toHaveBeenCalledWith('brew upgrade --cask lightcutvidz', expect.any(Function))
+    expect(opts.app.relaunch).toHaveBeenCalled()
+    expect(opts.app.exit).toHaveBeenCalledWith(0)
+  })
+
+  it('shows error when brew upgrade fails', async () => {
+    const opts = baseOpts()
+    opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v2.0.0' })
+    opts._exec = vi.fn((cmd, cb) => cb(new Error('brew failed')))
+    await _upgradeHomebrew(opts)
+    expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
+      win, expect.objectContaining({ type: 'error', title: 'update_failed_title' })
+    )
+    expect(opts.app.relaunch).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when user declines', async () => {
+    const opts = baseOpts()
+    opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v2.0.0' })
+    opts._exec = vi.fn()
+    opts.dialog.showMessageBox
+      .mockResolvedValueOnce({ response: 1 }) // user declines
+    await _upgradeHomebrew(opts)
+    expect(opts._exec).not.toHaveBeenCalled()
+  })
+})
+
+describe('_upgradeDeb', () => {
+  const win = {}
+  const baseOpts = (overrides = {}) => ({
+    dialog: { showMessageBox: vi.fn().mockResolvedValue({ response: 0 }) },
+    app: { getVersion: () => '1.0.0', relaunch: vi.fn(), exit: vi.fn() },
+    win,
+    t: (key) => key,
+    fromMenu: true,
+    ...overrides,
+  })
+
+  it('shows error when GitHub API fails', async () => {
+    const opts = baseOpts()
+    opts._fetchJson = vi.fn().mockRejectedValue(new Error('net'))
+    await _upgradeDeb(opts)
+    expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
+      win, expect.objectContaining({ type: 'error', title: 'update_failed_title' })
+    )
+  })
+
+  it('shows no update when already on latest', async () => {
+    const opts = baseOpts()
+    opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v1.0.0', assets: [] })
+    await _upgradeDeb(opts)
+    expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
+      win, expect.objectContaining({ title: 'no_update_title' })
+    )
+  })
+
+  it('shows error when no .deb asset found', async () => {
+    const opts = baseOpts()
+    opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v2.0.0', assets: [] })
+    await _upgradeDeb(opts)
+    expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
+      win, expect.objectContaining({ type: 'error', title: 'update_failed_title' })
+    )
+  })
+
+  it('downloads and installs when user accepts', async () => {
+    const opts = baseOpts()
+    opts._fetchJson = vi.fn().mockResolvedValue({
+      tag_name: 'v2.0.0',
+      assets: [{ name: 'lightcutvidz_2.0.0_amd64.deb', browser_download_url: 'https://example.com/file.deb' }],
+    })
+    opts._downloadFile = vi.fn().mockResolvedValue(undefined)
+    opts._exec = vi.fn((cmd, cb) => cb(null))
+    await _upgradeDeb(opts)
+    expect(opts._downloadFile).toHaveBeenCalled()
+    expect(opts._exec).toHaveBeenCalledWith(expect.stringContaining('pkexec apt-get install'), expect.any(Function))
+    expect(opts.app.relaunch).toHaveBeenCalled()
+    expect(opts.app.exit).toHaveBeenCalledWith(0)
+  })
+
+  it('shows error when apt install fails', async () => {
+    const opts = baseOpts()
+    opts._fetchJson = vi.fn().mockResolvedValue({
+      tag_name: 'v2.0.0',
+      assets: [{ name: 'lightcutvidz_2.0.0_amd64.deb', browser_download_url: 'https://example.com/file.deb' }],
+    })
+    opts._downloadFile = vi.fn().mockResolvedValue(undefined)
+    opts._exec = vi.fn((cmd, cb) => cb(new Error('apt failed')))
+    await _upgradeDeb(opts)
+    expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
+      win, expect.objectContaining({ type: 'error', title: 'update_failed_title' })
+    )
+    expect(opts.app.relaunch).not.toHaveBeenCalled()
   })
 })

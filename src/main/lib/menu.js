@@ -2,7 +2,7 @@ const { Menu, BrowserWindow, dialog } = require('electron')
 
 const VIDEO_EXTENSIONS = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'm4v']
 
-function buildMenuTemplate({ t, currentLang, isSnap, onOpenVideo, onUndo, onRedo, onFullscreenEntered, onAbout, onCheckUpdates, onSwitchLanguage }) {
+function buildMenuTemplate({ t, currentLang, onOpenVideo, onUndo, onRedo, onFullscreenEntered, onAbout, onCheckUpdates, onSwitchLanguage }) {
   const isMac = process.platform === 'darwin'
 
   return [
@@ -80,7 +80,7 @@ function buildMenuTemplate({ t, currentLang, isSnap, onOpenVideo, onUndo, onRedo
       submenu: [
         { label: t('menu_about'), click: onAbout },
         { type: 'separator' },
-        { label: t('menu_check_updates'), enabled: !isSnap, click: () => onCheckUpdates(true) },
+        { label: t('menu_check_updates'), click: () => onCheckUpdates(true) },
         { type: 'separator' },
         {
           label: t('menu_language'),
