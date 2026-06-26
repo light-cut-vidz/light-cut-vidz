@@ -1,4 +1,5 @@
 const { exec } = require('child_process')
+const { shell } = require('electron')
 const https = require('https')
 const fs = require('fs')
 const path = require('path')
@@ -39,22 +40,19 @@ function setupAutoUpdater({ autoUpdater, dialog, getWindow, t, state }) {
   })
 }
 
-async function checkForUpdates({ autoUpdater, dialog, app, getWindow, t, state, isDev, isHomebrew, isDeb, fromMenu,
+async function checkForUpdates({ autoUpdater, dialog, app, getWindow, t, state, isDev, isHomebrew, isDmg, isDeb, fromMenu,
   _homebrewHandler = _upgradeHomebrew,
+  _dmgHandler = _upgradeDmg,
   _debHandler = _upgradeDeb,
 }) {
   if (isDev) return
   const win = getWindow()
 
-  if (isHomebrew) {
-    return _homebrewHandler({ dialog, app, win, t, fromMenu })
-  }
+  if (isHomebrew) return _homebrewHandler({ dialog, app, win, t, fromMenu })
+  if (isDmg)      return _dmgHandler({ dialog, app, win, t, fromMenu })
+  if (isDeb)      return _debHandler({ dialog, app, win, t, fromMenu })
 
-  if (isDeb) {
-    return _debHandler({ dialog, app, win, t, fromMenu })
-  }
-
-  // electron-updater for AppImage (Linux) and DMG (macOS)
+  // electron-updater: AppImage (Linux) only
   if (state.updateDownloaded) {
     return showUpdateReadyDialog({ dialog, win, t, autoUpdater })
   }
@@ -93,11 +91,42 @@ async function checkForUpdates({ autoUpdater, dialog, app, getWindow, t, state, 
     }
   } catch (err) {
     if (fromMenu) {
-      const msg = err.code === 'ENOENT'
-        ? t('update_no_config_msg')
-        : String(err.message || err)
-      dialog.showMessageBox(win, { type: 'error', title: t('update_failed_title'), message: msg })
+      dialog.showMessageBox(win, { type: 'error', title: t('update_failed_title'), message: String(err.message || err) })
     }
+  }
+}
+
+async function _upgradeDmg({ dialog, app, win, t, fromMenu, _fetchJson = fetchJson, _openExternal = (url) => shell.openExternal(url) }) {
+  let latest
+  try {
+    const data = await _fetchJson(`https://api.github.com/repos/${REPO}/releases/latest`)
+    latest = data?.tag_name?.replace(/^v/, '')
+  } catch (err) {
+    if (fromMenu) dialog.showMessageBox(win, { type: 'error', title: t('update_failed_title'), message: String(err.message || err) })
+    return
+  }
+
+  if (!latest) {
+    if (fromMenu) dialog.showMessageBox(win, { type: 'info', title: t('no_update_title'), message: t('no_update_msg') })
+    return
+  }
+
+  const current = app.getVersion()
+  if (latest === current) {
+    if (fromMenu) dialog.showMessageBox(win, { type: 'info', title: t('no_update_title'), message: t('no_update_msg_v', latest) })
+    return
+  }
+
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'info',
+    title: t('update_available_title'),
+    message: t('update_available_msg', latest, current),
+    detail: t('update_dmg_detail'),
+    buttons: [t('update_open_releases'), t('update_later')],
+    defaultId: 0,
+  })
+  if (response === 0) {
+    _openExternal(`https://github.com/${REPO}/releases/latest`)
   }
 }
 
@@ -261,4 +290,4 @@ function downloadFile(url, dest) {
   })
 }
 
-module.exports = { setupAutoUpdater, checkForUpdates, _upgradeHomebrew, _upgradeDeb }
+module.exports = { setupAutoUpdater, checkForUpdates, _upgradeHomebrew, _upgradeDmg, _upgradeDeb }

@@ -19,6 +19,7 @@ ffmpeg.setFfprobePath(fixAsarPath(ffprobeInstaller.path))
 
 const isDev = process.env.NODE_ENV === 'development'
 const isHomebrew = process.platform === 'darwin' && process.execPath.includes('/Caskroom/')
+const isDmg = process.platform === 'darwin' && !isHomebrew
 const isAppImage = process.platform === 'linux' && !!process.env.APPIMAGE
 const isDeb = process.platform === 'linux' && !isAppImage
 
@@ -39,7 +40,7 @@ setupAutoUpdater({
 })
 
 const checkUpdates = (fromMenu = false) => checkForUpdates({
-  autoUpdater, dialog, app, getWindow: () => win, t, state: updaterState, isDev, isHomebrew, isDeb, fromMenu,
+  autoUpdater, dialog, app, getWindow: () => win, t, state: updaterState, isDev, isHomebrew, isDmg, isDeb, fromMenu,
 })
 
 // ─── Window ───────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { setupAutoUpdater, checkForUpdates, _upgradeHomebrew, _upgradeDeb } from '../lib/updater.js'
+import { setupAutoUpdater, checkForUpdates, _upgradeHomebrew, _upgradeDmg, _upgradeDeb } from '../lib/updater.js'
 
 function makeAutoUpdater() {
   const handlers = {}
@@ -24,6 +24,7 @@ function makeDeps(overrides = {}) {
     state: { updateDownloaded: false },
     isDev: false,
     isHomebrew: false,
+    isDmg: false,
     isDeb: false,
     fromMenu: false,
     ...overrides,
@@ -85,6 +86,13 @@ describe('checkForUpdates', () => {
     await checkForUpdates({ ...deps, isHomebrew: true, _homebrewHandler })
     expect(deps.autoUpdater.checkForUpdates).not.toHaveBeenCalled()
     expect(_homebrewHandler).toHaveBeenCalled()
+  })
+
+  it('skips electron-updater on DMG (uses _dmgHandler)', async () => {
+    const _dmgHandler = vi.fn().mockResolvedValue(undefined)
+    await checkForUpdates({ ...deps, isDmg: true, _dmgHandler })
+    expect(deps.autoUpdater.checkForUpdates).not.toHaveBeenCalled()
+    expect(_dmgHandler).toHaveBeenCalled()
   })
 
   it('skips electron-updater on deb', async () => {
@@ -156,21 +164,52 @@ describe('checkForUpdates', () => {
     expect(deps.dialog.showMessageBox).not.toHaveBeenCalled()
   })
 
-  it('shows update_no_config_msg when app-update.yml is missing (from menu)', async () => {
-    const err = Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' })
-    deps.autoUpdater.checkForUpdates.mockRejectedValue(err)
-    await checkForUpdates({ ...deps, fromMenu: true })
-    expect(deps.dialog.showMessageBox).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ type: 'error', message: 'update_no_config_msg' }),
+})
+
+describe('_upgradeDmg', () => {
+  const win = {}
+  const baseOpts = (overrides = {}) => ({
+    dialog: { showMessageBox: vi.fn().mockResolvedValue({ response: 0 }) },
+    app: { getVersion: () => '1.0.0' },
+    win,
+    t: (key) => key,
+    fromMenu: true,
+    ...overrides,
+  })
+
+  it('shows error when GitHub API fails', async () => {
+    const opts = baseOpts()
+    opts._fetchJson = vi.fn().mockRejectedValue(new Error('net'))
+    await _upgradeDmg(opts)
+    expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
+      win, expect.objectContaining({ type: 'error', title: 'update_failed_title' })
     )
   })
 
-  it('stays silent when app-update.yml is missing (not from menu)', async () => {
-    const err = Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
-    deps.autoUpdater.checkForUpdates.mockRejectedValue(err)
-    await checkForUpdates({ ...deps, fromMenu: false })
-    expect(deps.dialog.showMessageBox).not.toHaveBeenCalled()
+  it('shows no update when already on latest', async () => {
+    const opts = baseOpts()
+    opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v1.0.0' })
+    await _upgradeDmg(opts)
+    expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
+      win, expect.objectContaining({ title: 'no_update_title' })
+    )
+  })
+
+  it('opens releases page when user accepts', async () => {
+    const opts = baseOpts()
+    opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v2.0.0' })
+    opts._openExternal = vi.fn()
+    await _upgradeDmg(opts)
+    expect(opts._openExternal).toHaveBeenCalledWith(expect.stringContaining('github.com'))
+  })
+
+  it('does nothing when user declines', async () => {
+    const opts = baseOpts()
+    opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v2.0.0' })
+    opts._openExternal = vi.fn()
+    opts.dialog.showMessageBox.mockResolvedValueOnce({ response: 1 })
+    await _upgradeDmg(opts)
+    expect(opts._openExternal).not.toHaveBeenCalled()
   })
 })
 
