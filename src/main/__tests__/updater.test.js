@@ -248,7 +248,7 @@ describe('_upgradeHomebrew', () => {
     opts._exec = vi.fn((cmd, cb) => cb(null))
     opts._brewPath = '/opt/homebrew/bin/brew'
     await _upgradeHomebrew(opts)
-    expect(opts._exec).toHaveBeenCalledWith('/opt/homebrew/bin/brew upgrade --cask lightcutvidz', expect.any(Function))
+    expect(opts._exec).toHaveBeenCalledWith(expect.stringContaining('upgrade --cask lightcutvidz'), expect.any(Function))
     expect(opts.app.relaunch).toHaveBeenCalled()
     expect(opts.app.exit).toHaveBeenCalledWith(0)
   })

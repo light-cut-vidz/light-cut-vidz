@@ -175,7 +175,9 @@ async function _upgradeHomebrew({ dialog, app, win, t, fromMenu, _exec = exec, _
   })
 
   await new Promise((resolve) => {
-    _exec(`${_brewPath} upgrade --cask lightcutvidz`, (err) => {
+    // untap + retap to guarantee the local tap is up to date before upgrading
+    const cmd = `${_brewPath} untap light-cut-vidz/tap 2>/dev/null; ${_brewPath} tap light-cut-vidz/tap && ${_brewPath} upgrade --cask lightcutvidz`
+    _exec(cmd, (err) => {
       if (err) {
         dialog.showMessageBox(win, { type: 'error', title: t('update_failed_title'), message: String(err.message || err) })
         return resolve()
