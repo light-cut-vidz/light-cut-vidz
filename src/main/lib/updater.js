@@ -6,6 +6,12 @@ const path = require('path')
 const os = require('os')
 
 const REPO = 'light-cut-vidz/light-cut-vidz'
+const LOG_FILE = '/tmp/lightcutvidz-update.log'
+
+function log(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`
+  try { fs.appendFileSync(LOG_FILE, line) } catch { /* ignore */ }
+}
 
 function showUpdateReadyDialog({ dialog, win, t, autoUpdater }) {
   return dialog.showMessageBox(win, {
@@ -131,17 +137,24 @@ async function _upgradeDmg({ dialog, app, win, t, fromMenu, _fetchJson = fetchJs
 }
 
 function getBrewPath() {
-  if (fs.existsSync('/opt/homebrew/bin/brew')) return '/opt/homebrew/bin/brew'
-  if (fs.existsSync('/usr/local/bin/brew')) return '/usr/local/bin/brew'
+  const candidates = ['/opt/homebrew/bin/brew', '/usr/local/bin/brew']
+  for (const p of candidates) {
+    log(`checking brew at ${p}: ${fs.existsSync(p)}`)
+    if (fs.existsSync(p)) return p
+  }
+  log('brew not found at known paths, falling back to "brew"')
   return 'brew'
 }
 
 function _defaultSpawn(script) {
+  log(`spawning detached script:\n${script}`)
   const child = spawn('sh', ['-c', script], { detached: true, stdio: 'ignore' })
   child.unref()
+  log(`spawned pid: ${child.pid}`)
 }
 
 async function _upgradeHomebrew({ dialog, app, win, t, fromMenu, _fetchJson = fetchJson, _brewPath = getBrewPath(), _spawn = _defaultSpawn }) {
+  log('_upgradeHomebrew: started')
   let latest
   try {
     const data = await _fetchJson(`https://api.github.com/repos/${REPO}/releases/latest`)
@@ -179,10 +192,23 @@ async function _upgradeHomebrew({ dialog, app, win, t, fromMenu, _fetchJson = fe
     buttons: ['OK'],
   })
 
+  log(`current=${current} latest=${latest} brewPath=${_brewPath}`)
+
   // Exit the app first so macOS allows brew to replace the running .app bundle.
   // A detached shell script handles the actual upgrade and reopens the app.
-  const script = `sleep 2; ${_brewPath} untap light-cut-vidz/tap 2>/dev/null; ${_brewPath} tap light-cut-vidz/tap && ${_brewPath} upgrade --cask lightcutvidz && open -a LightCutVidz`
+  const script = [
+    `echo "[$(date -u +%FT%TZ)] update script started" >> ${LOG_FILE}`,
+    `echo "[$(date -u +%FT%TZ)] brew path: ${_brewPath}" >> ${LOG_FILE}`,
+    'sleep 2',
+    `${_brewPath} untap light-cut-vidz/tap >> ${LOG_FILE} 2>&1`,
+    `echo "[$(date -u +%FT%TZ)] tap removed" >> ${LOG_FILE}`,
+    `${_brewPath} tap light-cut-vidz/tap >> ${LOG_FILE} 2>&1 && echo "[$(date -u +%FT%TZ)] tap added" >> ${LOG_FILE}`,
+    `${_brewPath} upgrade --cask lightcutvidz >> ${LOG_FILE} 2>&1 && echo "[$(date -u +%FT%TZ)] upgrade done, opening app" >> ${LOG_FILE}`,
+    `open -a LightCutVidz`,
+    `echo "[$(date -u +%FT%TZ)] script finished" >> ${LOG_FILE}`,
+  ].join('; ')
   _spawn(script)
+  log('app.exit(0) called')
   app.exit(0)
 }
 
@@ -295,4 +321,4 @@ function downloadFile(url, dest) {
   })
 }
 
-module.exports = { setupAutoUpdater, checkForUpdates, _upgradeHomebrew, _upgradeDmg, _upgradeDeb }
+module.exports = { setupAutoUpdater, checkForUpdates, _upgradeHomebrew, _upgradeDmg, _upgradeDeb, log }
