@@ -242,38 +242,25 @@ describe('_upgradeHomebrew', () => {
     )
   })
 
-  it('runs brew upgrade and relaunches when user accepts', async () => {
+  it('spawns detached upgrade script and exits when user accepts', async () => {
     const opts = baseOpts()
     opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v2.0.0' })
-    opts._exec = vi.fn((cmd, cb) => cb(null))
     opts._brewPath = '/opt/homebrew/bin/brew'
+    opts._spawn = vi.fn()
     await _upgradeHomebrew(opts)
-    expect(opts._exec).toHaveBeenCalledWith(expect.stringContaining('upgrade --cask lightcutvidz'), expect.any(Function))
-    expect(opts.app.relaunch).toHaveBeenCalled()
+    expect(opts._spawn).toHaveBeenCalledWith(expect.stringContaining('upgrade --cask lightcutvidz'))
     expect(opts.app.exit).toHaveBeenCalledWith(0)
-  })
-
-  it('shows error when brew upgrade fails', async () => {
-    const opts = baseOpts()
-    opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v2.0.0' })
-    opts._brewPath = '/opt/homebrew/bin/brew'
-    opts._exec = vi.fn((cmd, cb) => cb(new Error('brew failed')))
-    await _upgradeHomebrew(opts)
-    expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
-      win, expect.objectContaining({ type: 'error', title: 'update_failed_title' })
-    )
-    expect(opts.app.relaunch).not.toHaveBeenCalled()
   })
 
   it('does nothing when user declines', async () => {
     const opts = baseOpts()
     opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v2.0.0' })
     opts._brewPath = '/opt/homebrew/bin/brew'
-    opts._exec = vi.fn()
+    opts._spawn = vi.fn()
     opts.dialog.showMessageBox
       .mockResolvedValueOnce({ response: 1 }) // user declines
     await _upgradeHomebrew(opts)
-    expect(opts._exec).not.toHaveBeenCalled()
+    expect(opts._spawn).not.toHaveBeenCalled()
   })
 })
 

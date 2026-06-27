@@ -1,4 +1,4 @@
-const { exec } = require('child_process')
+const { exec, spawn } = require('child_process')
 const { shell } = require('electron')
 const https = require('https')
 const fs = require('fs')
@@ -136,7 +136,12 @@ function getBrewPath() {
   return 'brew'
 }
 
-async function _upgradeHomebrew({ dialog, app, win, t, fromMenu, _exec = exec, _fetchJson = fetchJson, _brewPath = getBrewPath() }) {
+function _defaultSpawn(script) {
+  const child = spawn('sh', ['-c', script], { detached: true, stdio: 'ignore' })
+  child.unref()
+}
+
+async function _upgradeHomebrew({ dialog, app, win, t, fromMenu, _fetchJson = fetchJson, _brewPath = getBrewPath(), _spawn = _defaultSpawn }) {
   let latest
   try {
     const data = await _fetchJson(`https://api.github.com/repos/${REPO}/releases/latest`)
@@ -167,26 +172,18 @@ async function _upgradeHomebrew({ dialog, app, win, t, fromMenu, _exec = exec, _
   })
   if (response !== 0) return
 
-  dialog.showMessageBox(win, {
+  await dialog.showMessageBox(win, {
     type: 'info',
     title: t('update_installing_title'),
-    message: t('update_installing_msg'),
+    message: t('update_restarting_msg'),
     buttons: ['OK'],
   })
 
-  await new Promise((resolve) => {
-    // untap + retap to guarantee the local tap is up to date before upgrading
-    const cmd = `${_brewPath} untap light-cut-vidz/tap 2>/dev/null; ${_brewPath} tap light-cut-vidz/tap && ${_brewPath} upgrade --cask lightcutvidz`
-    _exec(cmd, (err) => {
-      if (err) {
-        dialog.showMessageBox(win, { type: 'error', title: t('update_failed_title'), message: String(err.message || err) })
-        return resolve()
-      }
-      app.relaunch()
-      app.exit(0)
-      resolve()
-    })
-  })
+  // Exit the app first so macOS allows brew to replace the running .app bundle.
+  // A detached shell script handles the actual upgrade and reopens the app.
+  const script = `sleep 2; ${_brewPath} untap light-cut-vidz/tap 2>/dev/null; ${_brewPath} tap light-cut-vidz/tap && ${_brewPath} upgrade --cask lightcutvidz && open -a LightCutVidz`
+  _spawn(script)
+  app.exit(0)
 }
 
 async function _upgradeDeb({ dialog, app, win, t, fromMenu, _exec = exec, _fetchJson = fetchJson, _downloadFile = downloadFile }) {
