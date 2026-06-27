@@ -11,7 +11,7 @@ const { clampAtempo } = require('./lib/atempo')
 const { buildVideoFilters } = require('./lib/videoFilters')
 const { translate } = require('./lib/i18n')
 const { buildMenu, setUndoRedoEnabled, VIDEO_EXTENSIONS } = require('./lib/menu')
-const { setupAutoUpdater, checkForUpdates, log: logUpdate } = require('./lib/updater')
+const { setupAutoUpdater, checkForUpdates } = require('./lib/updater')
 const { showAboutWindow } = require('./lib/aboutWindow')
 
 ffmpeg.setFfmpegPath(fixAsarPath(ffmpegStatic))
@@ -26,8 +26,6 @@ const isDmg = process.platform === 'darwin' && !isHomebrew
 const isAppImage = process.platform === 'linux' && !!process.env.APPIMAGE
 const isDeb = process.platform === 'linux' && !isAppImage
 
-logUpdate(`startup: platform=${process.platform} isDev=${isDev} isHomebrew=${isHomebrew} isDmg=${isDmg} isDeb=${isDeb} isAppImage=${isAppImage}`)
-logUpdate(`caskroom /opt/homebrew: ${fs.existsSync('/opt/homebrew/Caskroom/lightcutvidz')} /usr/local: ${fs.existsSync('/usr/local/Caskroom/lightcutvidz')}`)
 
 let currentLang = 'en'
 let win = null
