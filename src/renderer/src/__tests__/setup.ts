@@ -17,6 +17,7 @@ window.electronAPI = {
   saveVideo: async () => null,
   probeVideo: async () => ({ duration: 0, width: 0, height: 0 }),
   previewVideo: async () => '',
+  openSubtitleFile: async () => null,
   onPreviewProgress: () => () => {},
   exportVideo: async () => ({ success: true, outputPath: '' }),
   onProgress: () => () => {},

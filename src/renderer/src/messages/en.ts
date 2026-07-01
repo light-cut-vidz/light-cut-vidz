@@ -80,6 +80,41 @@ export const en = {
 
   // CropOverlay
   crop_apply: '✓ Apply',
+
+  // Subtitles
+  tool_subtitles: 'Subtitles',
+  subtitles_hint: 'Import an SRT file to burn subtitles into the video.',
+  subtitles_import: 'Import .srt file',
+  subtitles_remove: 'Remove',
+  subtitles_animation: 'Animation',
+  subtitles_anim_word_pop: 'Word pop',
+  subtitles_anim_word_pop_desc: 'One word at a time, popping in',
+  subtitles_anim_word_bounce: 'Word bounce',
+  subtitles_anim_word_bounce_desc: 'One word at a time, punchy bounce effect',
+  subtitles_anim_word_highlight: 'Karaoke highlight',
+  subtitles_anim_word_highlight_desc: 'Full sentence, active word highlighted',
+  subtitles_anim_rainbow: 'Rainbow',
+  subtitles_anim_rainbow_desc: 'Full sentence, each word in a different color',
+  subtitles_anim_sentence_fade: 'Sentence fade',
+  subtitles_anim_sentence_fade_desc: 'Whole sentence fades in and out',
+  subtitles_anim_sentence_slide: 'Sentence slide',
+  subtitles_anim_sentence_slide_desc: 'Slides up from the bottom while fading in',
+  subtitles_anim_typewriter: 'Typewriter',
+  subtitles_anim_typewriter_desc: 'Characters appear one by one',
+  subtitles_font: 'Font',
+  subtitles_size: 'Size',
+  subtitles_color: 'Text',
+  subtitles_outline: 'Outline',
+  subtitles_outline_width: 'Outline width',
+  subtitles_background: 'Background',
+  subtitles_background_opacity: 'Background opacity',
+  subtitles_accent: 'Highlight color',
+  subtitles_position: 'Position',
+  subtitles_position_top: 'Top',
+  subtitles_position_middle: 'Middle',
+  subtitles_position_bottom: 'Bottom',
+  export_subtitles: 'Subtitles',
+  export_subtitles_none: 'None',
 }
 
 export type Translations = typeof en

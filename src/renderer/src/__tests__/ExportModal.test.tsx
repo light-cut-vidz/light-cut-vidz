@@ -18,6 +18,7 @@ const baseState: EditorState = {
   straighten: 0,
   perspectiveHorizontal: 0,
   perspectiveVertical: 0,
+  subtitles: null,
 }
 
 function r(state: Partial<EditorState> = {}, onClose = vi.fn()) {

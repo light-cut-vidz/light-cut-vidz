@@ -1,7 +1,7 @@
 import React, { memo } from 'react'
 import type { EditorState } from '../App'
 import { useT } from '../i18n'
-import { CubeIcon, StarIcon, SoundOnIcon, SoundOffIcon, CropIcon } from './icons'
+import { CubeIcon, StarIcon, SoundOnIcon, SoundOffIcon, CropIcon, SubtitleIcon } from './icons'
 import './Toolbar.css'
 
 const SPEED_PRESETS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4]
@@ -11,15 +11,17 @@ interface Props {
   showCrop: boolean
   showFilters: boolean
   showGeometry: boolean
+  showSubtitles: boolean
   onSpeedChange: (speed: number) => void
   onMuteToggle: () => void
   onCropToggle: () => void
   onCropReset: () => void
   onFilterToggle: () => void
   onGeometryToggle: () => void
+  onSubtitlesToggle: () => void
 }
 
-function Toolbar({ state, showCrop, showFilters, showGeometry, onSpeedChange, onMuteToggle, onCropToggle, onCropReset, onFilterToggle, onGeometryToggle }: Props) {
+function Toolbar({ state, showCrop, showFilters, showGeometry, showSubtitles, onSpeedChange, onMuteToggle, onCropToggle, onCropReset, onFilterToggle, onGeometryToggle, onSubtitlesToggle }: Props) {
   const { t } = useT()
 
   return (
@@ -47,6 +49,22 @@ function Toolbar({ state, showCrop, showFilters, showGeometry, onSpeedChange, on
         >
           <StarIcon />
           {state.filter === 'none' ? t.tool_filters : state.filter.charAt(0).toUpperCase() + state.filter.slice(1)}
+        </button>
+      </div>
+
+      <div className="tool-divider" />
+
+      {/* Subtitles */}
+      <div className="tool-section">
+        <div className="tool-label">{t.tool_subtitles}</div>
+        <button
+          className={`tool-toggle-btn ${showSubtitles ? 'active-accent' : (state.subtitles ? 'active-ok' : '')}`}
+          onClick={onSubtitlesToggle}
+        >
+          <SubtitleIcon />
+          <span className="tool-toggle-btn-label" title={state.subtitles?.fileName}>
+            {state.subtitles ? state.subtitles.fileName : t.tool_subtitles}
+          </span>
         </button>
       </div>
 

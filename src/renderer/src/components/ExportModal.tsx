@@ -65,6 +65,9 @@ export default function ExportModal({ state, onClose }: Props) {
         muted: state.muted,
         format,
         duration: state.duration,
+        subtitles: state.subtitles
+          ? { cues: state.subtitles.cues, style: state.subtitles.style, animation: state.subtitles.animation }
+          : null,
       })
       setDone(true)
       setOutputPath(result.outputPath)
@@ -121,6 +124,12 @@ export default function ExportModal({ state, onClose }: Props) {
               {state.cutSegments.length > 0
                 ? t.export_cuts_removed(state.cutSegments.length)
                 : t.export_cuts_none}
+            </span>
+          </div>
+          <div className="summary-row">
+            <span className="summary-label">{t.export_subtitles}</span>
+            <span className="summary-value">
+              {state.subtitles ? state.subtitles.fileName : t.export_subtitles_none}
             </span>
           </div>
         </div>

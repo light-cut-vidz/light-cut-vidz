@@ -18,6 +18,7 @@ const baseState: EditorState = {
   straighten: 0,
   perspectiveHorizontal: 0,
   perspectiveVertical: 0,
+  subtitles: null,
 }
 
 function makeProps(overrides: Partial<EditorState> = {}, callbacks: Partial<{
@@ -27,12 +28,14 @@ function makeProps(overrides: Partial<EditorState> = {}, callbacks: Partial<{
   onCropReset: () => void
   onFilterToggle: () => void
   onGeometryToggle: () => void
-}> = {}, flags: Partial<{ showCrop: boolean; showFilters: boolean; showGeometry: boolean }> = {}) {
+  onSubtitlesToggle: () => void
+}> = {}, flags: Partial<{ showCrop: boolean; showFilters: boolean; showGeometry: boolean; showSubtitles: boolean }> = {}) {
   return {
     state: { ...baseState, ...overrides },
     showCrop: false,
     showFilters: false,
     showGeometry: false,
+    showSubtitles: false,
     ...flags,
     onSpeedChange: vi.fn(),
     onMuteToggle: vi.fn(),
@@ -40,6 +43,7 @@ function makeProps(overrides: Partial<EditorState> = {}, callbacks: Partial<{
     onCropReset: vi.fn(),
     onFilterToggle: vi.fn(),
     onGeometryToggle: vi.fn(),
+    onSubtitlesToggle: vi.fn(),
     ...callbacks,
   }
 }
@@ -90,7 +94,7 @@ describe('Toolbar', () => {
   it('calls onMuteToggle on audio button click', () => {
     const onMuteToggle = vi.fn()
     const { container } = r(makeProps({}, { onMuteToggle }))
-    const audioSection = container.querySelectorAll('.tool-section')[3]
+    const audioSection = container.querySelectorAll('.tool-section')[4]
     const btn = audioSection.querySelector('button')!
     fireEvent.click(btn)
     expect(onMuteToggle).toHaveBeenCalledOnce()

@@ -1,0 +1,160 @@
+.subtitles-panel {
+  padding: 16px;
+  background: #1a1a1a;
+  border-left: 1px solid #333;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+}
+
+.subtitles-hint {
+  font-size: 13px;
+  color: #888;
+  margin: 0;
+}
+
+.subtitles-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.subtitles-filename {
+  font-size: 13px;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtitles-remove {
+  color: #ff3b30;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.subtitles-remove:hover {
+  background: rgba(255, 59, 48, 0.1);
+}
+
+.subtitles-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.subtitles-label {
+  font-size: 12px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.subtitles-anim-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.subtitles-anim-card {
+  background: #2a2a2a;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #ccc;
+  transition: all 0.2s ease;
+}
+
+.subtitles-anim-card:hover {
+  background: #333;
+  color: #fff;
+}
+
+.subtitles-anim-card.active {
+  border-color: #007aff;
+  background: #252d3a;
+  color: #fff;
+}
+
+.subtitles-anim-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.subtitles-anim-desc {
+  font-size: 11px;
+  color: #888;
+}
+
+.subtitles-select {
+  background: #2a2a2a;
+  color: #fff;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.subtitles-slider {
+  width: 100%;
+  -webkit-appearance: none;
+  background: #333;
+  height: 4px;
+  border-radius: 2px;
+  outline: none;
+}
+
+.subtitles-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #007aff;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid #fff;
+}
+
+.subtitles-colors {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.subtitles-color-field {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.subtitles-color-field label {
+  font-size: 11px;
+  color: #888;
+}
+
+.subtitles-color-field input[type='color'] {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.subtitles-position-row {
+  display: flex;
+  gap: 8px;
+}
+
+.subtitles-position-row .btn-secondary.active {
+  border-color: #007aff;
+  background: #252d3a;
+  color: #fff;
+}

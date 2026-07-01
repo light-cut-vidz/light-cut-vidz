@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
-import type { TrimSegment, CropRect } from '../App'
+import type { TrimSegment, CropRect, SubtitlesState } from '../App'
 
 export interface EditableState {
   speed: number
@@ -11,6 +11,7 @@ export interface EditableState {
   straighten: number
   perspectiveHorizontal: number
   perspectiveVertical: number
+  subtitles: SubtitlesState | null
 }
 
 export const defaultEditable: EditableState = {
@@ -23,6 +24,7 @@ export const defaultEditable: EditableState = {
   straighten: 0,
   perspectiveHorizontal: 0,
   perspectiveVertical: 0,
+  subtitles: null,
 }
 
 export function useEditorHistory(initial: EditableState = defaultEditable) {

@@ -9,6 +9,9 @@ const { getFilterFfmpeg } = require('./filters')
 const { fixAsarPath } = require('./lib/asar')
 const { clampAtempo } = require('./lib/atempo')
 const { buildVideoFilters } = require('./lib/videoFilters')
+const {
+  expandCuesToEvents, remapEventsToKeptSegments, buildAssContent, buildSubtitlesFilter,
+} = require('./lib/subtitles')
 const { translate } = require('./lib/i18n')
 const { buildMenu, setUndoRedoEnabled, VIDEO_EXTENSIONS } = require('./lib/menu')
 const { setupAutoUpdater, checkForUpdates } = require('./lib/updater')
@@ -160,6 +163,16 @@ ipcMain.handle('ffmpeg:preview', async (event, inputPath) => {
   })
 })
 
+ipcMain.handle('dialog:openSubtitle', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    filters: [{ name: 'Subtitles', extensions: ['srt'] }],
+    properties: ['openFile'],
+  })
+  if (canceled) return null
+  const content = fs.readFileSync(filePaths[0], 'utf-8')
+  return { filePath: filePaths[0], content }
+})
+
 ipcMain.handle('dialog:saveVideo', async (_, defaultName) => {
   const { canceled, filePath } = await dialog.showSaveDialog({
     defaultPath: defaultName || 'output.mp4',
@@ -186,7 +199,7 @@ ipcMain.handle('ffmpeg:probe', async (_, filePath) => {
 ipcMain.handle('ffmpeg:export', async (event, options) => {
   const {
     inputPath, outputPath, segments, speed, crop, filter,
-    rotation, straighten, perspectiveH, perspectiveV, muted, format,
+    rotation, straighten, perspectiveH, perspectiveV, muted, format, subtitles,
   } = options
 
   return new Promise(async (resolve, reject) => {
@@ -226,8 +239,10 @@ ipcMain.handle('ffmpeg:export', async (event, options) => {
 
       // Step 2: concatenate (only if more than one segment)
       if (segmentFiles.length === 1) {
-        await convertToFormat(segmentFiles[0], outputPath, format, event)
+        const { filter: subtitlesFilter, assPath } = await buildExportSubtitlesFilter(segmentFiles[0], subtitles, segments, tmpDir)
+        await convertToFormat(segmentFiles[0], outputPath, format, event, subtitlesFilter)
         fs.unlinkSync(segmentFiles[0])
+        if (assPath) { try { fs.unlinkSync(assPath) } catch { /* ignore */ } }
       } else {
         const concatList = path.join(tmpDir, `lc_concat_${Date.now()}.txt`)
         fs.writeFileSync(concatList, segmentFiles.map(f => `file '${f}'`).join('\n'))
@@ -244,11 +259,13 @@ ipcMain.handle('ffmpeg:export', async (event, options) => {
             .run()
         })
 
-        await convertToFormat(concatOut, outputPath, format, event)
+        const { filter: subtitlesFilter, assPath } = await buildExportSubtitlesFilter(concatOut, subtitles, segments, tmpDir)
+        await convertToFormat(concatOut, outputPath, format, event, subtitlesFilter)
 
         segmentFiles.forEach(f => { try { fs.unlinkSync(f) } catch { /* ignore */ } })
         try { fs.unlinkSync(concatList) } catch { /* ignore */ }
         try { fs.unlinkSync(concatOut) } catch { /* ignore */ }
+        if (assPath) { try { fs.unlinkSync(assPath) } catch { /* ignore */ } }
       }
 
       event.sender.send('ffmpeg:progress', 100)
@@ -259,16 +276,58 @@ ipcMain.handle('ffmpeg:export', async (event, options) => {
   })
 })
 
-function convertToFormat(inputPath, outputPath, format, event) {
+// Builds the burn-in subtitles filter for the given (post-crop/rotation) intermediate
+// video file, if a subtitle track is configured. Probes the file for its actual output
+// dimensions (needed for ASS PlayResX/Y and the sentence-slide \move coordinates), then
+// expands cues into animation events and remaps them onto the concatenated/virtual
+// (post-cut) timeline before writing a temporary .ass file for ffmpeg's `subtitles` filter.
+async function buildExportSubtitlesFilter(intermediatePath, subtitles, keptSegments, tmpDir) {
+  if (!subtitles || !Array.isArray(subtitles.cues) || subtitles.cues.length === 0) {
+    return { filter: null, assPath: null }
+  }
+
+  const metadata = await new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(intermediatePath, (err, meta) => (err ? reject(err) : resolve(meta)))
+  })
+  const videoStream = (metadata.streams || []).find(s => s.codec_type === 'video')
+  const videoWidth = videoStream?.width || 1920
+  const videoHeight = videoStream?.height || 1080
+
+  const events = expandCuesToEvents(subtitles.cues, subtitles.animation, {
+    videoWidth,
+    videoHeight,
+    position: subtitles.style.position,
+    color: subtitles.style.color,
+    accentColor: subtitles.style.accentColor,
+  })
+  const remapped = remapEventsToKeptSegments(events, keptSegments)
+  const assContent = buildAssContent(remapped, subtitles.style, videoWidth, videoHeight)
+  const assPath = path.join(tmpDir, `lc_subs_${Date.now()}.ass`)
+  fs.writeFileSync(assPath, assContent, 'utf-8')
+
+  return { filter: buildSubtitlesFilter(assPath), assPath }
+}
+
+function convertToFormat(inputPath, outputPath, format, event, subtitlesFilter = null) {
   return new Promise((resolve, reject) => {
     let cmd = ffmpeg(inputPath)
 
     if (format === 'gif') {
+      const gifFilter = subtitlesFilter
+        ? `${subtitlesFilter},fps=15,scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse`
+        : 'fps=15,scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse'
       cmd = cmd
-        .outputOptions(['-vf', 'fps=15,scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse'])
+        .outputOptions(['-vf', gifFilter])
         .noAudio()
     } else if (format === 'webm') {
-      cmd = cmd.outputOptions(['-c:v libvpx-vp9', '-crf 30', '-b:v 0', '-c:a libopus'])
+      const opts = ['-c:v libvpx-vp9', '-crf 30', '-b:v 0']
+      if (subtitlesFilter) opts.push('-vf', subtitlesFilter)
+      opts.push('-c:a libopus')
+      cmd = cmd.outputOptions(opts)
+    } else if (subtitlesFilter) {
+      // mp4/mov/avi with subtitles: burning in requires re-encoding the video stream,
+      // so the stream-copy fast path below can't be used here.
+      cmd = cmd.outputOptions(['-vf', subtitlesFilter, '-c:v libx264', '-preset fast', '-crf 20', '-c:a copy'])
     } else {
       // mp4, mov, avi — stream copy when already h264
       cmd = cmd.outputOptions(['-c copy'])

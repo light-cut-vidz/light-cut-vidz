@@ -17,6 +17,7 @@ beforeEach(() => {
     saveVideo: vi.fn().mockResolvedValue(null),
     probeVideo: vi.fn().mockResolvedValue({ duration: 0, width: 0, height: 0 }),
     previewVideo: vi.fn().mockResolvedValue('/tmp/preview.webm'),
+    openSubtitleFile: vi.fn().mockResolvedValue(null),
     onPreviewProgress: vi.fn(() => () => {}),
     exportVideo: vi.fn().mockResolvedValue({ success: true, outputPath: '' }),
     onProgress: vi.fn(() => () => {}),

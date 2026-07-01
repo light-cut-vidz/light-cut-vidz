@@ -8,8 +8,10 @@ import CropFrame from './components/CropFrame'
 import VideoControls from './components/VideoControls'
 import Toast from './components/Toast'
 import { UndoIcon, RedoIcon } from './components/icons'
+import SubtitleOverlay from './components/SubtitleOverlay'
 import { useEditorHistory } from './hooks/useHistory'
 import { getKeptSegments, getVirtualDuration, realToVirtual, virtualToReal } from './utils/time'
+import type { SubtitleCue } from './utils/srt'
 import { useT } from './i18n'
 import './styles/App.css'
 
@@ -17,6 +19,7 @@ const ExportModal = lazy(() => import('./components/ExportModal'))
 const Filters = lazy(() => import('./components/Filters'))
 const GeometrySettings = lazy(() => import('./components/GeometrySettings'))
 const CropOverlay = lazy(() => import('./components/CropOverlay'))
+const SubtitlesPanel = lazy(() => import('./components/SubtitlesPanel'))
 
 export interface TrimSegment {
   id: string
@@ -29,6 +32,42 @@ export interface CropRect {
   y: number
   w: number
   h: number
+}
+
+export type SubtitleAnimation =
+  | 'word-pop' | 'word-bounce' | 'word-highlight' | 'rainbow'
+  | 'sentence-fade' | 'sentence-slide' | 'typewriter'
+
+export interface SubtitleStyle {
+  fontFamily: string
+  fontSize: number // relative unit (~% of video height), consistent between CSS preview and ASS export
+  color: string
+  outlineColor: string
+  outlineWidth: number
+  backgroundColor: string
+  backgroundOpacity: number // 0-1
+  position: 'top' | 'middle' | 'bottom'
+  accentColor: string // word-highlight active-word color
+}
+
+export interface SubtitlesState {
+  fileName: string
+  cues: SubtitleCue[]
+  style: SubtitleStyle
+  animation: SubtitleAnimation
+}
+
+// Trendy 2026 default: bold white captions, black outline, no box, word-by-word pop-in.
+export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
+  fontFamily: 'Arial',
+  fontSize: 5,
+  color: '#ffffff',
+  outlineColor: '#000000',
+  outlineWidth: 2,
+  backgroundColor: '#000000',
+  backgroundOpacity: 0,
+  position: 'bottom',
+  accentColor: '#22d3ee',
 }
 
 export interface EditorState {
@@ -44,9 +83,10 @@ export interface EditorState {
   straighten: number
   perspectiveHorizontal: number
   perspectiveVertical: number
+  subtitles: SubtitlesState | null
 }
 
-type ActivePanel = 'crop' | 'filters' | 'geometry' | null
+type ActivePanel = 'crop' | 'filters' | 'geometry' | 'subtitles' | null
 
 const isMac = navigator.platform.includes('Mac')
 
@@ -71,6 +111,7 @@ export default function App() {
   const showCrop = activePanel === 'crop'
   const showFilters = activePanel === 'filters'
   const showGeometry = activePanel === 'geometry'
+  const showSubtitles = activePanel === 'subtitles'
 
   const captureFrame = useCallback(() => {
     const video = videoRef.current
@@ -97,6 +138,16 @@ export default function App() {
   const resetGeometry = useCallback(() => set(p => ({
     ...p, rotation: 0, straighten: 0, perspectiveHorizontal: 0, perspectiveVertical: 0,
   })), [set])
+  const setSubtitlesStyle = useCallback((style: SubtitleStyle) => set(p => (
+    p.subtitles ? { ...p, subtitles: { ...p.subtitles, style } } : p
+  )), [set])
+  const setSubtitlesAnimation = useCallback((animation: SubtitleAnimation) => set(p => (
+    p.subtitles ? { ...p, subtitles: { ...p.subtitles, animation } } : p
+  )), [set])
+  const setSubtitles = useCallback((fileName: string, cues: SubtitleCue[]) => set(p => ({
+    ...p, subtitles: { fileName, cues, style: DEFAULT_SUBTITLE_STYLE, animation: 'word-pop' },
+  })), [set])
+  const removeSubtitles = useCallback(() => set(p => ({ ...p, subtitles: null })), [set])
 
   // Panel toggles — switching panels is a single state update
   const onCropToggle = useCallback(() => setActivePanel(p => p === 'crop' ? null : 'crop'), [])
@@ -109,6 +160,7 @@ export default function App() {
     })
   }, [captureFrame])
   const onGeometryToggle = useCallback(() => setActivePanel(p => p === 'geometry' ? null : 'geometry'), [])
+  const onSubtitlesToggle = useCallback(() => setActivePanel(p => p === 'subtitles' ? null : 'subtitles'), [])
 
   // ─── Load video ────────────────────────────────────────────────────────────
   const loadVideo = useCallback(async (filePath: string) => {
@@ -226,6 +278,7 @@ export default function App() {
     straighten: editable.straighten,
     perspectiveHorizontal: editable.perspectiveHorizontal,
     perspectiveVertical: editable.perspectiveVertical,
+    subtitles: editable.subtitles,
   }), [videoPath, videoUrl, duration, editable])
 
   if (loading) {
@@ -280,6 +333,7 @@ export default function App() {
             onDurationLoaded={setDuration}
             onPlayPause={setIsPlaying}
           />
+          <SubtitleOverlay videoRef={videoRef} subtitles={editable.subtitles} currentTime={currentTime} />
           <CompositionGrid visible={showCrop || showGeometry} />
           {showCrop && (
             <Suspense fallback={null}>
@@ -301,12 +355,14 @@ export default function App() {
           showCrop={showCrop}
           showFilters={showFilters}
           showGeometry={showGeometry}
+          showSubtitles={showSubtitles}
           onSpeedChange={setSpeed}
           onMuteToggle={toggleMuted}
           onCropToggle={onCropToggle}
           onCropReset={onCropReset}
           onFilterToggle={onFilterToggle}
           onGeometryToggle={onGeometryToggle}
+          onSubtitlesToggle={onSubtitlesToggle}
         />
 
         {showFilters && (
@@ -331,6 +387,18 @@ export default function App() {
               onPerspectiveHChange={setPerspectiveH}
               onPerspectiveVChange={setPerspectiveV}
               onReset={resetGeometry}
+            />
+          </Suspense>
+        )}
+
+        {showSubtitles && (
+          <Suspense fallback={null}>
+            <SubtitlesPanel
+              subtitles={editable.subtitles}
+              onImport={setSubtitles}
+              onStyleChange={setSubtitlesStyle}
+              onAnimationChange={setSubtitlesAnimation}
+              onRemove={removeSubtitles}
             />
           </Suspense>
         )}

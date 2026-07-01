@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeAllListeners('ffmpeg:preview-progress')
   },
   saveVideo: (defaultName) => ipcRenderer.invoke('dialog:saveVideo', defaultName),
+  openSubtitleFile: () => ipcRenderer.invoke('dialog:openSubtitle'),
   probeVideo: (filePath) => ipcRenderer.invoke('ffmpeg:probe', filePath),
   exportVideo: (options) => ipcRenderer.invoke('ffmpeg:export', options),
   onProgress: (callback) => {

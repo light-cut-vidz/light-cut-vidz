@@ -90,6 +90,13 @@ export const RotateIcon = (p: IconProps) => (
   </Svg>
 )
 
+export const SubtitleIcon = (p: IconProps) => (
+  <Svg strokeLinecap="butt" strokeLinejoin="miter" {...p}>
+    <rect x="2" y="5" width="20" height="14" rx="2" />
+    <path d="M6 14h4M12 14h6M6 10h12" />
+  </Svg>
+)
+
 export const VideoIcon = (p: IconProps) => (
   <Svg size={48} strokeWidth={1.5} strokeLinecap="butt" strokeLinejoin="miter" {...p}>
     <path d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
