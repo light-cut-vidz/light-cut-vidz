@@ -1,0 +1,130 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create draft release
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --draft \
+            --title "${{ github.ref_name }}" \
+            --notes "Release ${{ github.ref_name }}" \
+            --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-mac:
+    name: Build macOS archive (arm64)
+    needs: [create-release]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Sync version from tag
+        run: |
+          VERSION_NUM="${GITHUB_REF_NAME#v}"
+          npm version "$VERSION_NUM" --no-git-tag-version || true
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+        env:
+          npm_config_arch: arm64
+
+      - name: Check code signing availability
+        id: csc
+        run: echo "enabled=$( [ -n "$VAL" ] && echo true || echo false )" >> $GITHUB_OUTPUT
+        env:
+          VAL: ${{ secrets.CSC_LINK }}
+
+      - name: Configure code signing
+        if: steps.csc.outputs.enabled == 'true'
+        run: |
+          echo "CSC_LINK=${{ secrets.CSC_LINK }}" >> $GITHUB_ENV
+          echo "CSC_KEY_PASSWORD=${{ secrets.CSC_KEY_PASSWORD }}" >> $GITHUB_ENV
+          echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> $GITHUB_ENV
+          echo "APPLE_APP_SPECIFIC_PASSWORD=${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" >> $GITHUB_ENV
+          echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> $GITHUB_ENV
+
+      - name: Build app bundle (arm64)
+        run: npm run vite:build && npx electron-builder --mac dir --arm64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.csc.outputs.enabled }}
+
+      - name: Ad-hoc sign app (no Apple Developer certificate)
+        if: steps.csc.outputs.enabled == 'false'
+        run: codesign --force --deep --sign - "dist-app/mac-arm64/LightCutVidz.app"
+
+      # Une archive, pas une image disque : macOS s'installe uniquement par Homebrew,
+      # et un cask sait dézipper une .app aussi bien que monter un DMG. Plus rien à
+      # télécharger et glisser à la main.
+      - name: Package the app (arm64)
+        working-directory: dist-app/mac-arm64
+        run: ditto -c -k --keepParent "LightCutVidz.app" "../LightCutVidz-mac-arm64.zip"
+
+      - name: Upload archive to GitHub Release
+        run: gh release upload "${{ github.ref_name }}" dist-app/LightCutVidz-mac-arm64.zip --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-linux:
+    name: Build Linux AppImage + deb
+    needs: [create-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Sync version from tag
+        run: |
+          VERSION_NUM="${GITHUB_REF_NAME#v}"
+          npm version "$VERSION_NUM" --no-git-tag-version || true
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+
+      - name: Build AppImage and deb
+        run: npm run vite:build && npx electron-builder --linux AppImage deb --publish never
+
+      - name: Upload AppImage, deb, and update metadata to GitHub Release
+        run: |
+          gh release upload "${{ github.ref_name }}" dist-app/LightCutVidz-linux.AppImage --clobber
+          gh release upload "${{ github.ref_name }}" dist-app/LightCutVidz-linux.deb --clobber
+          gh release upload "${{ github.ref_name }}" dist-app/latest-linux.yml --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [release-mac, release-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark release as latest
+        run: gh release edit "${{ github.ref_name }}" --draft=false --latest --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

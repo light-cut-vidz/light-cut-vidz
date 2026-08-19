@@ -1,0 +1,69 @@
+.geometry-panel {
+  padding: 16px;
+  background: #1a1a1a;
+  border-left: 1px solid #333;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+.geometry-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.geometry-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.geometry-row label {
+  font-size: 12px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.rotate-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.geometry-slider {
+  width: 100%;
+  -webkit-appearance: none;
+  background: #333;
+  height: 4px;
+  border-radius: 2px;
+  outline: none;
+}
+
+.geometry-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #007aff;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid #fff;
+}
+
+.geometry-value {
+  font-size: 14px;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  min-width: 40px;
+}
+
+.geometry-reset {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #ff3b30;
+}
+
+.geometry-reset:hover {
+  background: rgba(255, 59, 48, 0.1);
+}
