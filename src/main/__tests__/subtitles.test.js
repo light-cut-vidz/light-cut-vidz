@@ -178,9 +178,11 @@ describe('buildAssContent', () => {
     expect(out).toMatch(/,0,0,1,2,1,2,20,20,\d+,1\n/)
   })
 
-  it('uses BorderStyle 3 (opaque box) when background opacity is set', () => {
+  // BorderStyle 3 paints the box with OutlineColour; 4 uses BackColour, which is
+  // what the "background" controls set.
+  it('uses BorderStyle 4 (box in BackColour) when background opacity is set', () => {
     const out = buildAssContent([], { ...style, backgroundOpacity: 0.5 }, 1920, 1080)
-    expect(out).toMatch(/,0,0,3,2,1,2,20,20,\d+,1\n/)
+    expect(out).toMatch(/,0,0,4,2,1,2,20,20,\d+,1\n/)
   })
 
   it('maps position to the correct ASS alignment', () => {
@@ -196,16 +198,56 @@ describe('buildAssContent', () => {
 })
 
 describe('buildSubtitlesFilter', () => {
-  it('escapes a simple unix path', () => {
-    expect(buildSubtitlesFilter('/tmp/lc_subs.ass')).toBe("subtitles='/tmp/lc_subs.ass'")
+  it('leaves a plain unix path alone', () => {
+    expect(buildSubtitlesFilter('/tmp/lc_subs.ass')).toBe('subtitles=/tmp/lc_subs.ass')
   })
 
-  it('escapes a Windows-style path with drive-letter colon and backslashes', () => {
-    const out = buildSubtitlesFilter('C:\\Users\\foo\\lc_subs.ass')
-    expect(out).toBe("subtitles='C\\:\\\\Users\\\\foo\\\\lc_subs.ass'")
+  it('escapes the drive-letter colon and backslashes of a Windows-style path', () => {
+    // option level: \ -> \\ and : -> \: ; filtergraph level: every \ doubled again
+    expect(buildSubtitlesFilter('C:\\Users\\foo.ass')).toBe(String.raw`subtitles=C\\:\\\\Users\\\\foo.ass`)
   })
 
-  it('escapes single quotes in the path', () => {
-    expect(buildSubtitlesFilter("/tmp/it's.ass")).toBe("subtitles='/tmp/it\\'s.ass'")
+  it('escapes an apostrophe so it cannot close a quote', () => {
+    expect(buildSubtitlesFilter("/tmp/it's.ass")).toBe(String.raw`subtitles=/tmp/it\\\'s.ass`)
+  })
+
+  it('escapes the characters that would split the filtergraph', () => {
+    expect(buildSubtitlesFilter('/tmp/a b,c;d[e].ass')).toBe(String.raw`subtitles=/tmp/a\ b\,c\;d\[e\].ass`)
+  })
+})
+
+describe('cues that straddle a cut', () => {
+  const slide = () => expandCuesToEvents([{ id: 1, start: 0, end: 10, text: 'hello world' }], 'sentence-slide', {})
+
+  it('keeps the intro animation on the part before the cut', () => {
+    const [first] = remapEventsToKeptSegments(slide(), [{ start: 0, end: 2 }, { start: 5, end: 10 }])
+    expect(first.text).toContain('\\move(')
+    expect(first.text).toContain('\\fad(')
+  })
+
+  // The piece after the cut is the same sentence still on screen: it must not
+  // slide or fade in a second time.
+  it('removes the fade/slide from the continuation after the cut', () => {
+    const [, second] = remapEventsToKeptSegments(slide(), [{ start: 0, end: 2 }, { start: 5, end: 10 }])
+    expect(second.text).toBe('hello world')
+  })
+
+  it('removes the pop-in scale of a word that resumes after a cut', () => {
+    const ev = expandCuesToEvents([{ id: 1, start: 0, end: 10, text: 'solo' }], 'word-pop', {})
+    const [, second] = remapEventsToKeptSegments(ev, [{ start: 0, end: 2 }, { start: 5, end: 10 }])
+    expect(second.text).toBe('solo')
+  })
+
+  it('leaves an event that starts inside a kept part untouched', () => {
+    const ev = expandCuesToEvents([{ id: 1, start: 6, end: 8, text: 'x' }], 'sentence-fade', {})
+    const [only] = remapEventsToKeptSegments(ev, [{ start: 5, end: 10 }])
+    expect(only.text).toContain('\\fad(')
+  })
+})
+
+describe('events shorter than ASS resolution', () => {
+  it('drops an event that rounds to zero length instead of emitting an invisible line', () => {
+    const out = buildAssContent([{ start: 1.0, end: 1.004, text: 'a' }, { start: 2, end: 3, text: 'b' }], { fontSize: 5 }, 1920, 1080)
+    expect(out.match(/^Dialogue:/gm)).toHaveLength(1)
   })
 })

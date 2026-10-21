@@ -168,3 +168,26 @@ describe('setLive / endGesture', () => {
     expect(result.current.editable).toEqual(defaultEditable)
   })
 })
+
+describe('useEditorHistory — no-op edits and bounded memory', () => {
+  it('does not record a step when a value is set to what it already is', () => {
+    const { result } = renderHook(() => useEditorHistory())
+    act(() => result.current.set(p => ({ ...p, speed: 1 })))
+    act(() => result.current.set(p => p))
+    expect(result.current.canUndo).toBe(false)
+  })
+
+  it('still records a real change', () => {
+    const { result } = renderHook(() => useEditorHistory())
+    act(() => result.current.set(p => ({ ...p, speed: 2 })))
+    expect(result.current.canUndo).toBe(true)
+  })
+
+  it('keeps at most 200 undo steps', () => {
+    const { result } = renderHook(() => useEditorHistory())
+    for (let i = 0; i < 250; i++) act(() => result.current.set(p => ({ ...p, rotation: i + 1 })))
+    let undone = 0
+    while (result.current.canUndo) { act(() => result.current.undo()); undone++ }
+    expect(undone).toBe(200)
+  })
+})

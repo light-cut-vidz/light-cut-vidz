@@ -147,3 +147,8 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* Lets the user copy a path or an error message */
+.export-done, .export-error {
+  user-select: text;
+}

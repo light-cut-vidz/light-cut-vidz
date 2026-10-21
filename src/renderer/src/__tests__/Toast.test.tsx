@@ -48,3 +48,22 @@ describe('Toast', () => {
     expect(onDone).not.toHaveBeenCalled()
   })
 })
+
+describe('Toast — timers', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('does not call onDone after being unmounted during the exit animation', () => {
+    const onDone = vi.fn()
+    const { unmount } = render(<Toast message="x" duration={1000} onDone={onDone} />)
+    act(() => { vi.advanceTimersByTime(1000) })
+    unmount()
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(onDone).not.toHaveBeenCalled()
+  })
+
+  it('is announced politely to assistive technology', () => {
+    render(<Toast message="Heads up" onDone={vi.fn()} />)
+    expect(screen.getByRole('status').textContent).toBe('Heads up')
+  })
+})

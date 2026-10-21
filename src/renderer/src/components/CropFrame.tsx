@@ -1,53 +1,54 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React from 'react'
 import type { CropRect } from '../App'
+import { useVideoRect } from '../hooks/useVideoRect'
+import { videoTransform } from '../utils/video'
 
 interface Props {
   videoRef: React.RefObject<HTMLVideoElement | null>
   crop: CropRect
+  /** The video's geometry, so the frame follows its rotation/perspective. */
+  geometry?: { rotation: number; straighten: number; perspectiveH: number; perspectiveV: number; filterId: string }
+  /** Override of the computed transform (tests). */
+  transform?: string
 }
 
-interface DisplayPos { x: number; y: number; w: number; h: number }
+export default function CropFrame({ videoRef, crop, geometry, transform }: Props) {
+  const rect = useVideoRect(videoRef)
+  if (!rect || !rect.naturalWidth) return null
 
-export default function CropFrame({ videoRef, crop }: Props) {
-  const [pos, setPos] = useState<DisplayPos | null>(null)
-
-  const compute = useCallback(() => {
-    const video = videoRef.current
-    if (!video || !video.videoWidth) return
-    const vr = video.getBoundingClientRect()
-    const pw = video.parentElement?.getBoundingClientRect()
-    if (!pw) return
-    const scale = vr.width / video.videoWidth
-    setPos({
-      x: (vr.left - pw.left) + crop.x * scale,
-      y: (vr.top  - pw.top)  + crop.y * scale,
-      w: crop.w * scale,
-      h: crop.h * scale,
-    })
-  }, [videoRef, crop])
-
-  useEffect(() => {
-    compute()
-    window.addEventListener('resize', compute)
-    return () => window.removeEventListener('resize', compute)
-  }, [compute])
-
-  if (!pos) return null
+  const scale = rect.width / rect.naturalWidth
+  const cssTransform = transform ?? (geometry
+    ? videoTransform(geometry.rotation, geometry.straighten, geometry.perspectiveH, geometry.perspectiveV, geometry.filterId, { w: rect.width, h: rect.height })
+    : undefined)
+  const fromTopLeft = !transform && !!geometry && (geometry.perspectiveH !== 0 || geometry.perspectiveV !== 0)
 
   return (
     <div
       style={{
         position: 'absolute',
-        left: pos.x,
-        top: pos.y,
-        width: pos.w,
-        height: pos.h,
-        border: '2px solid #e53e3e',
-        boxShadow: '0 0 0 9999px rgba(0,0,0,0.45)',
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        transform: cssTransform,
+        transformOrigin: fromTopLeft ? '0 0' : undefined,
+        transition: 'transform 0.1s ease-out',
         pointerEvents: 'none',
         zIndex: 5,
-        boxSizing: 'border-box',
       }}
-    />
+    >
+      <div
+        style={{
+          position: 'absolute',
+          left: crop.x * scale,
+          top: crop.y * scale,
+          width: crop.w * scale,
+          height: crop.h * scale,
+          border: '2px solid #e53e3e',
+          boxShadow: '0 0 0 9999px rgba(0,0,0,0.45)',
+          boxSizing: 'border-box',
+        }}
+      />
+    </div>
   )
 }

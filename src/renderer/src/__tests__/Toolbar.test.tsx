@@ -204,3 +204,37 @@ describe('Toolbar', () => {
     expect(container.querySelector('.trim-count')).toBeNull()
   })
 })
+
+describe('Toolbar — labels', () => {
+  const renderBar = (overrides: Partial<EditorState>) =>
+    render(<LangProvider><Toolbar {...makeProps(overrides)} /></LangProvider>)
+
+  // The raw id used to be printed capitalised: "Upside_down", "Bright".
+  it('shows the translated name of the active filter, not its id', () => {
+    const { container } = renderBar({ filter: 'upside_down' })
+    const text = container.textContent ?? ''
+    expect(text).toContain('Upside Down')
+    expect(text).not.toContain('Upside_down')
+  })
+
+  it('lights the geometry button for a straighten angle alone', () => {
+    const { container } = renderBar({ straighten: 5 })
+    expect(container.querySelectorAll('.tool-toggle-btn')[0].className).toContain('active-ok')
+  })
+
+  it('leaves the geometry button plain when nothing is set', () => {
+    const { container } = renderBar({})
+    expect(container.querySelectorAll('.tool-toggle-btn')[0].className).not.toContain('active-ok')
+  })
+})
+
+describe('Toolbar — version button', () => {
+  it('opens the What\'s new window when the version is clicked', () => {
+    const handler = vi.fn()
+    window.addEventListener('lcv:show-changelog', handler)
+    const { container } = render(<LangProvider><Toolbar {...makeProps()} /></LangProvider>)
+    fireEvent.click(container.querySelector('.toolbar-version') as HTMLElement)
+    window.removeEventListener('lcv:show-changelog', handler)
+    expect(handler).toHaveBeenCalledTimes(1)
+  })
+})

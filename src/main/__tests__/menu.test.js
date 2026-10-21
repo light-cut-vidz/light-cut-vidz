@@ -240,3 +240,40 @@ describe('setUndoRedoEnabled', () => {
     vi.restoreAllMocks()
   })
 })
+
+describe('project menu items', () => {
+  const fileMenu = (opts) => buildMenuTemplate(makeOpts(opts)).find(m => m.label === 'menu_file').submenu
+
+  it('offers Save and Open project with their shortcuts', () => {
+    const items = fileMenu()
+    expect(items.find(i => i.label === 'menu_save_project').accelerator).toBe('CmdOrCtrl+S')
+    expect(items.find(i => i.label === 'menu_open_project').accelerator).toBe('CmdOrCtrl+Shift+O')
+  })
+
+  it('calls the handlers with the focused window', () => {
+    const onSaveProject = vi.fn()
+    const onOpenProject = vi.fn()
+    const items = fileMenu({ onSaveProject, onOpenProject })
+    items.find(i => i.label === 'menu_save_project').click()
+    items.find(i => i.label === 'menu_open_project').click()
+    expect(onSaveProject).toHaveBeenCalled()
+    expect(onOpenProject).toHaveBeenCalled()
+  })
+
+  it('does not crash when no handler is provided', () => {
+    expect(() => fileMenu().find(i => i.label === 'menu_save_project').click()).not.toThrow()
+  })
+})
+
+describe('What\'s new menu item', () => {
+  it('sits in the Help menu and calls the handler with the focused window', () => {
+    const onShowChangelog = vi.fn()
+    const help = buildMenuTemplate(makeOpts({ onShowChangelog })).find(m => m.label === 'menu_help')
+    help.submenu.find(i => i.label === 'menu_whats_new').click()
+    expect(onShowChangelog).toHaveBeenCalled()
+  })
+  it('does nothing without a handler', () => {
+    const help = buildMenuTemplate(makeOpts()).find(m => m.label === 'menu_help')
+    expect(() => help.submenu.find(i => i.label === 'menu_whats_new').click()).not.toThrow()
+  })
+})

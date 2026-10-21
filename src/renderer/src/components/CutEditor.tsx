@@ -21,7 +21,11 @@ export default function CutEditor({ seg, onTimeInput, onDelete, onSeek }: CutEdi
   const endVal = editingEnd ?? (seg ? formatTimePrecise(seg.end) : '')
 
   const commitAndReset = (edge: 'start' | 'end', raw: string) => {
-    if (seg) onTimeInput(seg.id, edge, raw)
+    // Focusing then leaving a field without typing hands back the display text,
+    // rounded to a tenth. Committing that would silently move the boundary and
+    // add an undo step for nothing.
+    const shown = seg ? formatTimePrecise(edge === 'start' ? seg.start : seg.end) : ''
+    if (seg && raw !== shown) onTimeInput(seg.id, edge, raw)
     if (edge === 'start') setEditingStart(null)
     else setEditingEnd(null)
   }
@@ -39,7 +43,7 @@ export default function CutEditor({ seg, onTimeInput, onDelete, onSeek }: CutEdi
               value={startVal}
               onChange={e => setEditingStart(e.target.value)}
               onBlur={e => commitAndReset('start', e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { commitAndReset('start', startVal); (e.target as HTMLInputElement).blur() } }}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
               onFocus={() => setEditingStart(formatTimePrecise(seg.start))}
               title={t.cut_format}
             />
@@ -55,7 +59,7 @@ export default function CutEditor({ seg, onTimeInput, onDelete, onSeek }: CutEdi
               value={endVal}
               onChange={e => setEditingEnd(e.target.value)}
               onBlur={e => commitAndReset('end', e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { commitAndReset('end', endVal); (e.target as HTMLInputElement).blur() } }}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
               onFocus={() => setEditingEnd(formatTimePrecise(seg.end))}
               title={t.cut_format}
             />

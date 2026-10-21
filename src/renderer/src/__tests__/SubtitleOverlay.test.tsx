@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act } from '@testing-library/react'
 import React, { useRef } from 'react'
 import SubtitleOverlay from '../components/SubtitleOverlay'
@@ -32,10 +32,10 @@ function makeVideo({ ready = true } = {}) {
   let width = ready ? 1920 : 0
   Object.defineProperty(video, 'videoWidth', { get: () => width, configurable: true })
   Object.defineProperty(video, 'videoHeight', { get: () => (width ? 1080 : 0), configurable: true })
-  video.getBoundingClientRect = () =>
-    ({ left: 0, top: 0, right: 960, bottom: 540, width: 960, height: 540, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
-  parent.getBoundingClientRect = () =>
-    ({ left: 0, top: 0, right: 960, bottom: 540, width: 960, height: 540, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+  // Layout metrics (not getBoundingClientRect, which is wrong under a rotation).
+  for (const [key, value] of Object.entries({ offsetLeft: 0, offsetTop: 0, offsetWidth: 960, offsetHeight: 540 })) {
+    Object.defineProperty(video, key, { value, configurable: true })
+  }
 
   return {
     video,
@@ -57,22 +57,24 @@ function subs(animation: SubtitleAnimation, text = 'hello brave world'): Subtitl
 
 // The video handle is created by the test, not by the component, so the spec
 // can drive `loadedmetadata` while the same element stays mounted.
-function Harness({ subtitles, currentTime, video }: {
+function Harness({ subtitles, currentTime, video, crop }: {
   subtitles: SubtitlesState | null
   currentTime: number
   video: HTMLVideoElement
+  crop?: { x: number; y: number; w: number; h: number } | null
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(video)
-  return <SubtitleOverlay videoRef={videoRef} subtitles={subtitles} currentTime={currentTime} />
+  return <SubtitleOverlay videoRef={videoRef} subtitles={subtitles} currentTime={currentTime} crop={crop} />
 }
 
-function r({ subtitles, currentTime, ready = true }: {
+function r({ subtitles, currentTime, ready = true, crop }: {
   subtitles: SubtitlesState | null
   currentTime: number
   ready?: boolean
+  crop?: { x: number; y: number; w: number; h: number } | null
 }) {
   const handle = makeVideo({ ready })
-  const result = render(<Harness subtitles={subtitles} currentTime={currentTime} video={handle.video} />)
+  const result = render(<Harness subtitles={subtitles} currentTime={currentTime} video={handle.video} crop={crop} />)
   return {
     ...result,
     handle,
@@ -217,5 +219,82 @@ describe('SubtitleOverlay — styling', () => {
     unmount()
     expect(removeSpy).toHaveBeenCalledWith('resize', expect.any(Function))
     removeSpy.mockRestore()
+  })
+})
+
+describe('SubtitleOverlay — follows the video clock while playing', () => {
+  let frames: Array<() => void>
+  beforeEach(() => {
+    frames = []
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => { frames.push(() => cb(0)); return frames.length })
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+  })
+  afterEach(() => { vi.restoreAllMocks() })
+
+  function playing(time: number) {
+    const handle = makeVideo()
+    let t = time
+    Object.defineProperty(handle.video, 'currentTime', { configurable: true, get: () => t, set: (v: number) => { t = v } })
+    Object.defineProperty(handle.video, 'paused', { configurable: true, get: () => false })
+    const view = render(<Harness subtitles={subs('word-pop', 'one two three four')} currentTime={0} video={handle.video} />)
+    return { ...view, handle, setTime: (v: number) => { t = v } }
+  }
+
+  // `timeupdate` only fires ~4x/s, so word-by-word animation lagged behind.
+  it('picks the word from the live video time, not from the (stale) prop', () => {
+    const { container, setTime } = playing(0.05)
+    act(() => { frames.splice(0).forEach(f => f()) })
+    expect(container.querySelector('.sub-word-pop')?.textContent).toBe('one')
+    setTime(2.9)
+    act(() => { frames.splice(0).forEach(f => f()) })
+    expect(container.querySelector('.sub-word-pop')?.textContent).toBe('four')
+  })
+
+  it('goes back to the exact prop once paused', () => {
+    const { container, handle } = playing(2.9)
+    act(() => { frames.splice(0).forEach(f => f()) })
+    act(() => { handle.video.dispatchEvent(new Event('pause')) })
+    expect(container.querySelector('.sub-word-pop')?.textContent).toBe('one') // prop currentTime = 0
+  })
+
+  it('does not poll at all without subtitles', () => {
+    const handle = makeVideo()
+    Object.defineProperty(handle.video, 'paused', { configurable: true, get: () => false })
+    render(<Harness subtitles={null} currentTime={0} video={handle.video} />)
+    expect(window.requestAnimationFrame).not.toHaveBeenCalled()
+  })
+})
+
+describe('SubtitleOverlay — layout follows what is exported', () => {
+  it('shows every cue that is active at once (SRT cues may overlap)', () => {
+    const overlapping: SubtitlesState = {
+      ...subs('sentence-fade'),
+      cues: [{ id: 1, start: 0, end: 3, text: 'first' }, { id: 2, start: 1, end: 4, text: 'second' }],
+    }
+    const { container } = r({ subtitles: overlapping, currentTime: 2 })
+    expect(container.querySelectorAll('.sub-sentence-fade')).toHaveLength(2)
+  })
+
+  // The picture is 1920x1080 shown at 960x540 and cropped to its right half.
+  it('lays the subtitles out on the cropped picture', () => {
+    const { container } = r({ subtitles: subs('sentence-fade'), currentTime: 1, crop: { x: 960, y: 270, w: 960, h: 540 } })
+    const box = container.querySelector('.subtitle-overlay') as HTMLElement
+    expect(box.style.left).toBe('480px')
+    expect(box.style.top).toBe('135px')
+    expect(box.style.width).toBe('480px')
+    expect(box.style.height).toBe('270px')
+  })
+
+  it('sizes the font from the cropped height', () => {
+    const { container } = r({ subtitles: subs('sentence-fade'), currentTime: 1, crop: { x: 0, y: 0, w: 960, h: 540 } })
+    // fontSize 5 -> 5% of the 270px the cropped region occupies on screen
+    expect((container.querySelector('.sub-sentence-fade') as HTMLElement).style.fontSize).toBe('13.5px')
+  })
+
+  // ASS outline (default 2 px of a 1080-tall frame) shown at half size, and a
+  // CSS stroke is half hidden under the fill: 2 * 2 * 0.5 = 2px.
+  it('scales the outline to the displayed size', () => {
+    const { container } = r({ subtitles: subs('sentence-fade'), currentTime: 1 })
+    expect(parseFloat((container.querySelector('.sub-sentence-fade') as HTMLElement).style.getPropertyValue('-webkit-text-stroke-width'))).toBeCloseTo(2, 5)
   })
 })

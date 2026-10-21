@@ -59,3 +59,23 @@ Et repas familiaux y trouvent leur excellence.
     expect(cues.map(c => c.text)).toEqual(['First', 'Second'])
   })
 })
+
+describe('parseSrt — markup', () => {
+  const block = (text: string) => `1\n00:00:00,000 --> 00:00:02,000\n${text}\n`
+
+  it('strips <i>, <b>, <u> and <font> tags', () => {
+    expect(parseSrt(block('<i>hello</i> <b>brave</b> <font color="#ff0000">world</font>'))[0].text).toBe('hello brave world')
+  })
+
+  it('strips ASS-style override tags such as {\\an8}', () => {
+    expect(parseSrt(block('{\\an8}On top'))[0].text).toBe('On top')
+  })
+
+  it('keeps a lone < or > that is not a tag', () => {
+    expect(parseSrt(block('1 < 2 and 3 > 2'))[0].text).toBe('1 < 2 and 3 > 2')
+  })
+
+  it('drops a cue that is nothing but markup', () => {
+    expect(parseSrt(block('<i></i>'))).toEqual([])
+  })
+})

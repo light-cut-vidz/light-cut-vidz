@@ -72,8 +72,8 @@ export const fr: Translations = {
   // App
   app_open_video: 'Ouvrir une vidéo',
   app_export: 'Exporter',
-  app_undo: 'Annuler (Ctrl+Z)',
-  app_redo: 'Rétablir (Ctrl+Y)',
+  app_undo: 'Annuler',
+  app_redo: 'Rétablir',
   fullscreen_hint_mac: 'Plein écran — appuyez sur Ctrl+Cmd+F ou Échap pour quitter',
   fullscreen_hint_linux: 'Plein écran — appuyez sur F11 ou Échap pour quitter',
 
@@ -117,4 +117,22 @@ export const fr: Translations = {
   subtitles_position_bottom: 'Bas',
   export_subtitles: 'Sous-titres',
   export_subtitles_none: 'Aucun',
+
+  // Errors, confirmations and long-running work
+  error_video_unreadable: 'Cette vidéo ne peut pas être lue. Son format n\'est peut-être pas pris en charge.',
+  error_not_video: 'Ce fichier n\'est pas une vidéo prise en charge (MP4, MOV, AVI, MKV, WebM, FLV, M4V).',
+  confirm_open_new: 'Ouvrir une autre vidéo ? Vos modifications sur la vidéo actuelle seront perdues.',
+  loading_cancel: 'Annuler',
+  subtitles_empty: 'Aucun sous-titre trouvé dans ce fichier.',
+  subtitles_error: 'Impossible de lire ce fichier de sous-titres.',
+  export_stop: 'Arrêter l\'export',
+  export_cancelled: 'Export annulé',
+  export_nothing: 'Rien à exporter : toute la vidéo est coupée.',
+  export_already_running: 'Un export est déjà en cours.',
+  project_saved: 'Projet enregistré',
+  project_save_failed: 'Impossible d\'enregistrer le projet.',
+  changelog_title: 'Nouveautés',
+  changelog_close: 'Fermer',
+  changelog_empty: 'Aucun journal des modifications disponible.',
+  changelog_version: (v: string) => `Version ${v}`,
 }

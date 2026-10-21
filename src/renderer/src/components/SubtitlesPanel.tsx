@@ -8,17 +8,25 @@ interface Props {
   subtitles: SubtitlesState | null
   onImport: (fileName: string, cues: ReturnType<typeof parseSrt>) => void
   onStyleChange: (style: SubtitleStyle) => void
+  /** Continuous edits (sliders, colour pickers): one undo step per gesture. */
+  onStyleChangeLive?: (style: SubtitleStyle) => void
+  onCommit?: () => void
+  /** Called with a short reason key when the file cannot be used. */
+  onError?: (reason: 'empty' | 'read') => void
   onAnimationChange: (animation: SubtitleAnimation) => void
   onRemove: () => void
 }
 
+// Only families that exist on macOS, Windows and (via fontconfig aliases or
+// metric-compatible substitutes) Linux. Listing Calibri or Futura meant the
+// preview and the export each silently picked a different fallback.
 const FONT_OPTIONS = [
-  'Arial', 'Arial Black', 'Impact', 'Verdana', 'Georgia',
-  'Times New Roman', 'Comic Sans MS', 'Trebuchet MS', 'Courier New',
-  'Roboto', 'Helvetica', 'Calibri', 'Segoe UI', 'Tahoma', 'Futura', 'Century Gothic', 'Palatino',
+  'Arial', 'Arial Black', 'Helvetica', 'Impact', 'Verdana', 'Trebuchet MS',
+  'Georgia', 'Times New Roman', 'Courier New', 'Comic Sans MS',
+  'sans-serif', 'serif', 'monospace',
 ]
 
-export default function SubtitlesPanel({ subtitles, onImport, onStyleChange, onAnimationChange, onRemove }: Props) {
+export default function SubtitlesPanel({ subtitles, onImport, onStyleChange, onStyleChangeLive, onCommit, onError, onAnimationChange, onRemove }: Props) {
   const { t } = useT()
 
   const ANIMATIONS: { id: SubtitleAnimation; label: string; desc: string }[] = [
@@ -32,12 +40,18 @@ export default function SubtitlesPanel({ subtitles, onImport, onStyleChange, onA
   ]
 
   const handleImport = useCallback(async () => {
-    const result = await window.electronAPI.openSubtitleFile()
-    if (!result) return
-    const cues = parseSrt(result.content)
-    const fileName = result.filePath.split(/[/\\]/).pop() || result.filePath
-    onImport(fileName, cues)
-  }, [onImport])
+    try {
+      const result = await window.electronAPI.openSubtitleFile()
+      if (!result) return
+      const cues = parseSrt(result.content)
+      if (cues.length === 0) { onError?.('empty'); return }
+      const fileName = result.filePath.split(/[/\\]/).pop() || result.filePath
+      onImport(fileName, cues)
+    } catch (err) {
+      console.error('Subtitle import failed:', err)
+      onError?.('read')
+    }
+  }, [onImport, onError])
 
   if (!subtitles) {
     return (
@@ -51,6 +65,9 @@ export default function SubtitlesPanel({ subtitles, onImport, onStyleChange, onA
   const { style, animation } = subtitles
 
   const patchStyle = (patch: Partial<SubtitleStyle>) => onStyleChange({ ...style, ...patch })
+  // Sliders and colour pickers fire a change per tick: fold them into one step.
+  const patchLive = (patch: Partial<SubtitleStyle>) => (onStyleChangeLive ?? onStyleChange)({ ...style, ...patch })
+  const commitProps = onCommit ? { onPointerUp: onCommit, onPointerCancel: onCommit, onKeyUp: onCommit, onBlur: onCommit } : {}
 
   return (
     <div className="subtitles-panel">
@@ -91,7 +108,8 @@ export default function SubtitlesPanel({ subtitles, onImport, onStyleChange, onA
         <input
           type="range" min="2" max="12" step="0.5"
           value={style.fontSize}
-          onChange={e => patchStyle({ fontSize: Number(e.target.value) })}
+          onChange={e => patchLive({ fontSize: Number(e.target.value) })}
+          {...commitProps}
           className="subtitles-slider"
         />
       </div>
@@ -99,20 +117,20 @@ export default function SubtitlesPanel({ subtitles, onImport, onStyleChange, onA
       <div className="subtitles-section subtitles-colors">
         <div className="subtitles-color-field">
           <label>{t.subtitles_color}</label>
-          <input type="color" value={style.color} onChange={e => patchStyle({ color: e.target.value })} />
+          <input type="color" value={style.color} onChange={e => patchLive({ color: e.target.value })} {...commitProps} />
         </div>
         <div className="subtitles-color-field">
           <label>{t.subtitles_outline}</label>
-          <input type="color" value={style.outlineColor} onChange={e => patchStyle({ outlineColor: e.target.value })} />
+          <input type="color" value={style.outlineColor} onChange={e => patchLive({ outlineColor: e.target.value })} {...commitProps} />
         </div>
         <div className="subtitles-color-field">
           <label>{t.subtitles_background}</label>
-          <input type="color" value={style.backgroundColor} onChange={e => patchStyle({ backgroundColor: e.target.value })} />
+          <input type="color" value={style.backgroundColor} onChange={e => patchLive({ backgroundColor: e.target.value })} {...commitProps} />
         </div>
         {animation === 'word-highlight' && (
           <div className="subtitles-color-field">
             <label>{t.subtitles_accent}</label>
-            <input type="color" value={style.accentColor} onChange={e => patchStyle({ accentColor: e.target.value })} />
+            <input type="color" value={style.accentColor} onChange={e => patchLive({ accentColor: e.target.value })} {...commitProps} />
           </div>
         )}
       </div>
@@ -122,7 +140,8 @@ export default function SubtitlesPanel({ subtitles, onImport, onStyleChange, onA
         <input
           type="range" min="0" max="6" step="0.5"
           value={style.outlineWidth}
-          onChange={e => patchStyle({ outlineWidth: Number(e.target.value) })}
+          onChange={e => patchLive({ outlineWidth: Number(e.target.value) })}
+          {...commitProps}
           className="subtitles-slider"
         />
       </div>
@@ -132,7 +151,8 @@ export default function SubtitlesPanel({ subtitles, onImport, onStyleChange, onA
         <input
           type="range" min="0" max="1" step="0.05"
           value={style.backgroundOpacity}
-          onChange={e => patchStyle({ backgroundOpacity: Number(e.target.value) })}
+          onChange={e => patchLive({ backgroundOpacity: Number(e.target.value) })}
+          {...commitProps}
           className="subtitles-slider"
         />
       </div>

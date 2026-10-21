@@ -28,7 +28,11 @@ export default [
         HTMLDivElement: 'readonly',
         HTMLInputElement: 'readonly',
         KeyboardEvent: 'readonly',
-            __APP_VERSION__: 'readonly',
+        __APP_VERSION__: 'readonly',
+        requestAnimationFrame: 'readonly',
+        cancelAnimationFrame: 'readonly',
+        DragEvent: 'readonly',
+        HTMLElement: 'readonly',
       },
     },
     plugins: {
@@ -60,7 +64,7 @@ export default [
       globals: {
         process: 'readonly', console: 'readonly', global: 'readonly',
         queueMicrotask: 'readonly', setTimeout: 'readonly',
-        Response: 'readonly', Headers: 'readonly',
+        Response: 'readonly', Headers: 'readonly', Buffer: 'readonly', URL: 'readonly',
       },
     },
     rules: {
@@ -69,7 +73,7 @@ export default [
   },
   {
     // Electron main + preload: CommonJS running on Node, not the browser.
-    files: ['src/main/**/*.js', 'src/preload/**/*.js'],
+    files: ['src/main/**/*.js', 'src/preload/**/*.js', 'e2e/**/*.js', 'scripts/**/*.js'],
     ignores: ['src/main/__tests__/**'],
     languageOptions: {
       ecmaVersion: 'latest',
@@ -83,6 +87,10 @@ export default [
         URL: 'readonly',
         Request: 'readonly',
         Response: 'readonly',
+        Headers: 'readonly',
+        TextDecoder: 'readonly',
+        Buffer: 'readonly',
+        setTimeout: 'readonly',
       },
     },
     rules: {

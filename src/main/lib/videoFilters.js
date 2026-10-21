@@ -1,10 +1,13 @@
 // Pure builders for ffmpeg video filter chains used in the export pipeline.
 
 function rotationFilter(totalRotate) {
+  // 450° and -270° are a quarter turn: fold into [0, 360) so the cheap
+  // lossless transposes below match them.
+  totalRotate = ((totalRotate % 360) + 360) % 360
   if (totalRotate === 0) return null
   if (totalRotate === 90) return 'transpose=1'
   if (totalRotate === 180) return 'transpose=1,transpose=1'
-  if (totalRotate === 270 || totalRotate === -90) return 'transpose=2'
+  if (totalRotate === 270) return 'transpose=2'
   // Arbitrary angle. ow/oh expand the output canvas to fit the rotated content.
   return `rotate=${totalRotate}*PI/180:ow=rotw(${totalRotate}*PI/180):oh=roth(${totalRotate}*PI/180)`
 }
@@ -49,11 +52,15 @@ function speedFilter(speed) {
 // players and hardware decoders cannot read. Always end on even dimensions.
 const EVEN_DIMENSIONS = 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
 
+// The crop comes first: the crop box is drawn on the unrotated frame, so its
+// coordinates only mean something in the source's own pixel space. Applied
+// after a rotation it would be out of bounds (90°) or cut the wrong area
+// (straighten, which enlarges the canvas).
 function buildVideoFilters({ rotation = 0, straighten = 0, perspectiveH = 0, perspectiveV = 0, crop = null, colorFilter = '', speed = 1 } = {}) {
   return [
+    cropFilter(crop),
     rotationFilter(rotation + straighten),
     perspectiveFilter(perspectiveH, perspectiveV),
-    cropFilter(crop),
     colorFilter || null,
     speedFilter(speed),
     EVEN_DIMENSIONS,

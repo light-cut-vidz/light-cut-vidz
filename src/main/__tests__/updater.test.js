@@ -1,4 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import os from 'os'
+import path from 'path'
+import fs from 'fs'
+import crypto from 'crypto'
 import { requireSrc } from './__doubles__/installElectron.js'
 const { setupAutoUpdater, checkForUpdates, _upgradeMac, _upgradeDeb } = requireSrc('main/lib/updater.js')
 
@@ -31,6 +35,19 @@ function makeDeps(overrides = {}) {
   }
 }
 
+// Successful updates leave their private download directory for the install
+// script (mocked here) to remove; sweep what the tests created.
+afterEach(() => {
+  for (const d of fs.readdirSync(os.tmpdir())) {
+    if (d.startsWith('lcv-update-')) fs.rmSync(path.join(os.tmpdir(), d), { recursive: true, force: true })
+  }
+})
+
+const SUMS = { name: 'SHA256SUMS', browser_download_url: 'https://dl/SHA256SUMS' }
+
+/** A release carrying the package and the checksum list the updater insists on. */
+const releaseWith = (assets, over = {}) => ({ tag_name: 'v2.0.0', assets: [...assets, SUMS], ...over })
+
 describe('setupAutoUpdater', () => {
   it('configures autoUpdater settings', () => {
     const deps = makeDeps()
@@ -46,22 +63,16 @@ describe('setupAutoUpdater', () => {
     expect(deps.autoUpdater.handlers['update-downloaded']).toBeDefined()
   })
 
-  it('shows an error dialog when autoUpdater errors', () => {
+  // electron-updater emits `error` AND rejects the failing call's promise, and
+  // that call already reports it: a dialog here as well showed it twice.
+  it('does not pop a dialog on an engine error (the failing call reports it)', () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
     const deps = makeDeps()
     setupAutoUpdater(deps)
     deps.autoUpdater.handlers.error(new Error('boom'))
-    expect(deps.dialog.showMessageBox).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ type: 'error', message: 'boom' }),
-    )
-  })
-
-  it('silently ignores ENOENT errors (app-update.yml missing)', () => {
-    const deps = makeDeps()
-    setupAutoUpdater(deps)
-    const err = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' })
-    deps.autoUpdater.handlers.error(err)
     expect(deps.dialog.showMessageBox).not.toHaveBeenCalled()
+    expect(log).toHaveBeenCalled()
+    log.mockRestore()
   })
 
   it('marks state.updateDownloaded=true on update-downloaded', () => {
@@ -172,25 +183,22 @@ describe('checkForUpdates', () => {
 
 describe('_upgradeMac', () => {
   const win = {}
+  const zip = { name: 'LightCutVidz-mac-arm64.zip', browser_download_url: 'https://dl/app.zip' }
   const baseOpts = (overrides = {}) => ({
     dialog: { showMessageBox: vi.fn().mockResolvedValue({ response: 0 }) },
-    app: { getVersion: () => '1.0.0', exit: vi.fn() },
+    app: { getVersion: () => '1.0.0', exit: vi.fn(), getPath: () => '/Applications/LightCutVidz.app/Contents/MacOS/LightCutVidz' },
     win,
     t: (key) => key,
     fromMenu: true,
     ...overrides,
   })
-
-  const release = (over = {}) => ({
-    tag_name: 'v2.0.0',
-    assets: [{ name: 'LightCutVidz-mac-arm64.zip', browser_download_url: 'https://dl/app.zip' }],
-    ...over,
-  })
+  const release = (over = {}) => releaseWith([zip], over)
 
   /** Les dépendances d'une mise à jour qui va jusqu'au bout. */
   const installOpts = (over = {}) => baseOpts({
     _fetchJson: vi.fn().mockResolvedValue(release()),
     _downloadFile: vi.fn().mockResolvedValue(undefined),
+    _verify: vi.fn().mockResolvedValue(undefined),
     _spawn: vi.fn(),
     _appPath: '/Applications/LightCutVidz.app',
     ...over,
@@ -216,12 +224,49 @@ describe('_upgradeMac', () => {
     )
   })
 
-  it("télécharge l'archive publiée avec la release", async () => {
+  it("télécharge l'archive et sa liste de sommes dans un dossier privé", async () => {
     const opts = installOpts()
 
     await _upgradeMac(opts)
 
-    expect(opts._downloadFile).toHaveBeenCalledWith('https://dl/app.zip', expect.stringContaining('.zip'))
+    const [[zipUrl, zipDest], [sumsUrl, sumsDest]] = opts._downloadFile.mock.calls
+    expect(zipUrl).toBe('https://dl/app.zip')
+    expect(sumsUrl).toBe('https://dl/SHA256SUMS')
+    expect(path.dirname(zipDest)).toBe(path.dirname(sumsDest))
+    expect(path.dirname(zipDest)).toMatch(/lcv-update-/)
+    expect(fs.statSync(path.dirname(zipDest)).mode & 0o077).toBe(0)
+  })
+
+  it("vérifie la somme SHA-256 avant d'installer quoi que ce soit", async () => {
+    const opts = installOpts()
+
+    await _upgradeMac(opts)
+
+    expect(opts._verify).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('.zip'), expect.stringContaining('SHA256SUMS'), zip.name)
+    expect(opts._spawn).toHaveBeenCalled()
+  })
+
+  it("n'installe rien et le dit quand la somme ne correspond pas", async () => {
+    const opts = installOpts({ _verify: vi.fn().mockRejectedValue(new Error('Checksum mismatch')) })
+
+    await _upgradeMac(opts)
+
+    expect(opts._spawn).not.toHaveBeenCalled()
+    expect(opts.app.exit).not.toHaveBeenCalled()
+    expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
+      win, expect.objectContaining({ type: 'error', message: 'update_bad_checksum' })
+    )
+  })
+
+  it('refuse une release qui ne publie pas de sommes de contrôle', async () => {
+    const opts = installOpts({ _fetchJson: vi.fn().mockResolvedValue({ tag_name: 'v2.0.0', assets: [zip] }) })
+
+    await _upgradeMac(opts)
+
+    expect(opts._downloadFile).not.toHaveBeenCalled()
+    expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
+      win, expect.objectContaining({ type: 'error', message: 'update_no_checksum' })
+    )
   })
 
   it("remplace l'app puis la rouvre, sans passer par brew", async () => {
@@ -229,13 +274,47 @@ describe('_upgradeMac', () => {
 
     await _upgradeMac(opts)
 
-    const script = opts._spawn.mock.calls[0][0]
+    const [script] = opts._spawn.mock.calls[0]
     expect(script).toContain('ditto -x -k')
-    expect(script).toContain('/Applications/LightCutVidz.app')
     expect(script).toContain('open -a')
     // La release fait foi : le cask du tap n'est réécrit qu'après, et attendre
     // qu'il le soit laissait une mise à jour sans effet.
     expect(script).not.toContain('brew')
+  })
+
+  // Les valeurs viennent du réseau : jamais dans la chaîne du shell.
+  it('passe les chemins en arguments positionnels, pas dans le script', async () => {
+    const opts = installOpts()
+
+    await _upgradeMac(opts)
+
+    const [script, args] = opts._spawn.mock.calls[0]
+    expect(script).not.toContain('/Applications')
+    expect(script).not.toContain('2.0.0')
+    expect(args).toHaveLength(4)
+    expect(args[2]).toBe('/Applications/LightCutVidz.app')
+    expect(args[1]).toMatch(/LightCutVidz-mac-arm64\.zip$/)
+  })
+
+  it("copie la nouvelle version à côté avant de supprimer l'ancienne", async () => {
+    const opts = installOpts()
+
+    await _upgradeMac(opts)
+
+    const [script] = opts._spawn.mock.calls[0]
+    expect(script.indexOf('cp -R')).toBeGreaterThan(-1)
+    expect(script.indexOf('cp -R')).toBeLessThan(script.indexOf('rm -rf "$3"'))
+    // Chaîné avec && : un échec de copie arrête tout avant la suppression.
+    expect(script).not.toMatch(/;\s/)
+  })
+
+  it("déduit l'emplacement de l'app qui tourne plutôt que de supposer /Applications", async () => {
+    const opts = installOpts({ _appPath: undefined })
+    opts.app.getPath = () => '/Users/me/Applications/LightCutVidz.app/Contents/MacOS/LightCutVidz'
+
+    await _upgradeMac(opts)
+
+    expect(opts._spawn.mock.calls[0][1][2]).toBe('/Users/me/Applications/LightCutVidz.app')
   })
 
   it("quitte l'app avant de la remplacer — macOS refuse d'écraser un bundle en cours", async () => {
@@ -251,17 +330,9 @@ describe('_upgradeMac', () => {
 
     await _upgradeMac(opts)
 
-    const script = opts._spawn.mock.calls[0][0]
+    const [script] = opts._spawn.mock.calls[0]
     expect(script).toContain('xattr -dr com.apple.quarantine')
     expect(script).toContain('codesign --force --deep --sign -')
-  })
-
-  it('décompresse dans un dossier propre à la version', async () => {
-    const opts = installOpts()
-
-    await _upgradeMac(opts)
-
-    expect(opts._spawn.mock.calls[0][0]).toContain('/tmp/lcv-update-2.0.0')
   })
 
   it('efface le téléchargement derrière lui', async () => {
@@ -269,7 +340,9 @@ describe('_upgradeMac', () => {
 
     await _upgradeMac(opts)
 
-    expect(opts._spawn.mock.calls[0][0]).toMatch(/rm -rf .*\.zip/)
+    const [script, args] = opts._spawn.mock.calls[0]
+    expect(script).toContain('rm -rf "$4"')
+    expect(args[3]).toMatch(/lcv-update-/)
   })
 
   it('does nothing when user declines', async () => {
@@ -283,14 +356,32 @@ describe('_upgradeMac', () => {
   })
 
   it("signale une release sans archive macOS plutôt que de lancer un script bancal", async () => {
-    const opts = installOpts({ _fetchJson: vi.fn().mockResolvedValue(release({ assets: [] })) })
+    const opts = installOpts({ _fetchJson: vi.fn().mockResolvedValue(release({ assets: [SUMS] })) })
 
     await _upgradeMac(opts)
 
     expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
-      win, expect.objectContaining({ type: 'error', title: 'update_failed_title' })
+      win, expect.objectContaining({ type: 'error', message: 'update_no_mac_archive' })
     )
     expect(opts._spawn).not.toHaveBeenCalled()
+  })
+
+  it.each(['v1.2.3$(touch /tmp/pwn)', 'v2.0.0;reboot', 'latest'])('rejette le tag suspect %s', async (tag_name) => {
+    const opts = installOpts({ _fetchJson: vi.fn().mockResolvedValue(release({ tag_name })) })
+
+    await _upgradeMac(opts)
+
+    expect(opts._downloadFile).not.toHaveBeenCalled()
+    expect(opts._spawn).not.toHaveBeenCalled()
+  })
+
+  it("rejette un nom d'archive qui sortirait du dossier de téléchargement", async () => {
+    const evil = { name: '../../evil$(x).zip', browser_download_url: 'https://dl/x.zip' }
+    const opts = installOpts({ _fetchJson: vi.fn().mockResolvedValue(release({ assets: [evil, SUMS] })) })
+
+    await _upgradeMac(opts)
+
+    expect(opts._downloadFile).not.toHaveBeenCalled()
   })
 
   it("n'installe rien quand le téléchargement échoue", async () => {
@@ -305,12 +396,14 @@ describe('_upgradeMac', () => {
 
 describe('_upgradeDeb', () => {
   const win = {}
+  const deb = { name: 'lightcutvidz_2.0.0_amd64.deb', browser_download_url: 'https://example.com/file.deb' }
   const baseOpts = (overrides = {}) => ({
     dialog: { showMessageBox: vi.fn().mockResolvedValue({ response: 0 }) },
     app: { getVersion: () => '1.0.0', relaunch: vi.fn(), exit: vi.fn() },
     win,
     t: (key) => key,
     fromMenu: true,
+    _verify: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   })
 
@@ -334,36 +427,55 @@ describe('_upgradeDeb', () => {
 
   it('shows error when no .deb asset found', async () => {
     const opts = baseOpts()
-    opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v2.0.0', assets: [] })
+    opts._fetchJson = vi.fn().mockResolvedValue(releaseWith([]))
     await _upgradeDeb(opts)
     expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
-      win, expect.objectContaining({ type: 'error', title: 'update_failed_title' })
+      win, expect.objectContaining({ type: 'error', message: 'update_no_deb' })
     )
   })
 
-  it('downloads and installs when user accepts', async () => {
+  it('downloads, verifies and installs when user accepts', async () => {
     const opts = baseOpts()
-    opts._fetchJson = vi.fn().mockResolvedValue({
-      tag_name: 'v2.0.0',
-      assets: [{ name: 'lightcutvidz_2.0.0_amd64.deb', browser_download_url: 'https://example.com/file.deb' }],
-    })
+    opts._fetchJson = vi.fn().mockResolvedValue(releaseWith([deb]))
     opts._downloadFile = vi.fn().mockResolvedValue(undefined)
-    opts._exec = vi.fn((cmd, cb) => cb(null))
+    opts._execFile = vi.fn((cmd, args, cb) => cb(null))
     await _upgradeDeb(opts)
-    expect(opts._downloadFile).toHaveBeenCalled()
-    expect(opts._exec).toHaveBeenCalledWith(expect.stringContaining('pkexec apt-get install'), expect.any(Function))
+    expect(opts._downloadFile).toHaveBeenCalledTimes(2)
+    expect(opts._verify).toHaveBeenCalled()
     expect(opts.app.relaunch).toHaveBeenCalled()
     expect(opts.app.exit).toHaveBeenCalledWith(0)
   })
 
+  // No shell: the package path is an argument, never part of a command line.
+  it('lance pkexec sans passer par un shell', async () => {
+    const opts = baseOpts()
+    opts._fetchJson = vi.fn().mockResolvedValue(releaseWith([deb]))
+    opts._downloadFile = vi.fn().mockResolvedValue(undefined)
+    opts._execFile = vi.fn((cmd, args, cb) => cb(null))
+    await _upgradeDeb(opts)
+    const [file, args] = opts._execFile.mock.calls[0]
+    expect(file).toBe('pkexec')
+    expect(args.slice(0, 3)).toEqual(['apt-get', 'install', '-y'])
+    expect(args[3]).toMatch(/lcv-update-.*lightcutvidz_2\.0\.0_amd64\.deb$/)
+  })
+
+  it("n'installe pas un .deb dont la somme ne correspond pas", async () => {
+    const opts = baseOpts({ _verify: vi.fn().mockRejectedValue(new Error('Checksum mismatch')) })
+    opts._fetchJson = vi.fn().mockResolvedValue(releaseWith([deb]))
+    opts._downloadFile = vi.fn().mockResolvedValue(undefined)
+    opts._execFile = vi.fn()
+    await _upgradeDeb(opts)
+    expect(opts._execFile).not.toHaveBeenCalled()
+    expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
+      win, expect.objectContaining({ type: 'error', message: 'update_bad_checksum' })
+    )
+  })
+
   it('shows error when apt install fails', async () => {
     const opts = baseOpts()
-    opts._fetchJson = vi.fn().mockResolvedValue({
-      tag_name: 'v2.0.0',
-      assets: [{ name: 'lightcutvidz_2.0.0_amd64.deb', browser_download_url: 'https://example.com/file.deb' }],
-    })
+    opts._fetchJson = vi.fn().mockResolvedValue(releaseWith([deb]))
     opts._downloadFile = vi.fn().mockResolvedValue(undefined)
-    opts._exec = vi.fn((cmd, cb) => cb(new Error('apt failed')))
+    opts._execFile = vi.fn((cmd, args, cb) => cb(new Error('apt failed')))
     await _upgradeDeb(opts)
     expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
       win, expect.objectContaining({ type: 'error', title: 'update_failed_title' })
@@ -372,14 +484,38 @@ describe('_upgradeDeb', () => {
   })
 })
 
+describe('verifyChecksum', () => {
+  const { verifyChecksum } = requireSrc('main/lib/updater.js')
+  let file
+  const hashOf = (text) => crypto.createHash('sha256').update(text).digest('hex')
+
+  beforeEach(() => {
+    file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lcv-sum-')), 'pkg.deb')
+    fs.writeFileSync(file, 'PACKAGE')
+  })
+
+  it('accepts a matching sha256sum line', async () => {
+    await expect(verifyChecksum(file, `${hashOf('PACKAGE')}  pkg.deb\n`, 'pkg.deb')).resolves.toBeUndefined()
+  })
+
+  it('accepts the binary-mode marker and uppercase hex', async () => {
+    await expect(verifyChecksum(file, `${hashOf('PACKAGE').toUpperCase()} *pkg.deb`, 'pkg.deb')).resolves.toBeUndefined()
+  })
+
+  it('rejects a different file content', async () => {
+    await expect(verifyChecksum(file, `${hashOf('OTHER')}  pkg.deb`, 'pkg.deb')).rejects.toThrow('mismatch')
+  })
+
+  it('rejects when the asset is not listed', async () => {
+    await expect(verifyChecksum(file, `${hashOf('PACKAGE')}  other.deb`, 'pkg.deb')).rejects.toThrow('No checksum')
+  })
+})
+
 // ─── HTTP layer ──────────────────────────────────────────────────────────────
 // Neither helper used to check the status code: a rate-limited GitHub reply
 // parsed as "no update available", and an error page was written to disk as if
 // it were the .deb, then handed to `pkexec apt-get install`.
 
-import os from 'os'
-import path from 'path'
-import fs from 'fs'
 const { fetchJson, downloadFile } = requireSrc('main/lib/updater.js')
 
 /** Minimal stand-in for https.get: replays one scripted response. */
@@ -392,6 +528,7 @@ function fakeGet(responses) {
       statusCode: status,
       headers,
       resume: () => {},
+      destroy: () => {},
       on: (event, fn) => { listeners[event] = fn; return res },
       pipe: (dest) => { dest.write(body); dest.end() },
     }
@@ -405,6 +542,10 @@ function fakeGet(responses) {
 }
 
 describe('fetchJson', () => {
+  it('refuses plain HTTP', async () => {
+    await expect(fetchJson('http://api.github.com/x', fakeGet([]))).rejects.toThrow('HTTPS')
+  })
+
   it('parses a successful response', async () => {
     const get = fakeGet([{ status: 200, body: '{"tag_name":"v2.0.0"}' }])
     await expect(fetchJson('https://api.github.com/x', get)).resolves.toEqual({ tag_name: 'v2.0.0' })
@@ -418,6 +559,22 @@ describe('fetchJson', () => {
   it('rejects on a malformed body', async () => {
     const get = fakeGet([{ status: 200, body: 'not json' }])
     await expect(fetchJson('https://api.github.com/x', get)).rejects.toBeInstanceOf(Error)
+  })
+})
+
+describe('checkForUpdates — mode développement', () => {
+  it('explique au lieu de rester muet quand on le demande depuis le menu', async () => {
+    const deps = makeDeps({ isDev: true, fromMenu: true })
+    await checkForUpdates(deps)
+    expect(deps.dialog.showMessageBox).toHaveBeenCalledWith(
+      expect.anything(), expect.objectContaining({ title: 'dev_mode_title' }),
+    )
+  })
+
+  it('reste silencieux pour la vérification automatique', async () => {
+    const deps = makeDeps({ isDev: true, fromMenu: false })
+    await checkForUpdates(deps)
+    expect(deps.dialog.showMessageBox).not.toHaveBeenCalled()
   })
 })
 
@@ -454,6 +611,23 @@ describe('downloadFile', () => {
     expect(fs.existsSync(dest)).toBe(false)
   })
 
+  it('refuses to download over plain HTTP', async () => {
+    await expect(downloadFile('http://example.com/pkg.deb', dest, fakeGet([]))).rejects.toThrow('HTTPS')
+  })
+
+  it('gives up after too many redirects', async () => {
+    const hop = { status: 302, headers: { location: 'https://example.com/again' } }
+    const get = fakeGet(Array.from({ length: 10 }, () => hop))
+    await expect(downloadFile('https://example.com/pkg.deb', dest, get)).rejects.toThrow('redirects')
+  })
+
+  it('never overwrites a file that already exists at the destination', async () => {
+    fs.writeFileSync(dest, 'PRE-EXISTING')
+    const get = fakeGet([{ status: 200, body: 'NEW' }])
+    await expect(downloadFile('https://example.com/pkg.deb', dest, get)).rejects.toThrow()
+    expect(fs.readFileSync(dest, 'utf-8')).toBe('PRE-EXISTING')
+  })
+
   it('rejects a redirect with no location header rather than looping', async () => {
     const get = fakeGet([{ status: 302, headers: {}, body: '' }])
     await expect(downloadFile('https://example.com/pkg.deb', dest, get)).rejects.toThrow('302')
@@ -464,7 +638,7 @@ describe('_upgradeMac — chemins restants', () => {
   const win = {}
   const baseOpts = (overrides = {}) => ({
     dialog: { showMessageBox: vi.fn().mockResolvedValue({ response: 0 }) },
-    app: { getVersion: () => '1.0.0', exit: vi.fn() },
+    app: { getVersion: () => '1.0.0', exit: vi.fn(), getPath: () => '' },
     win,
     t: (key) => key,
     fromMenu: true,
@@ -509,6 +683,7 @@ describe('_upgradeDeb — chemins restants', () => {
     win,
     t: (key) => key,
     fromMenu: true,
+    _verify: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   })
 
@@ -530,18 +705,15 @@ describe('_upgradeDeb — chemins restants', () => {
     await _upgradeDeb(opts)
 
     expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
-      win, expect.objectContaining({ type: 'error', title: 'update_failed_title' })
+      win, expect.objectContaining({ type: 'error', message: 'update_no_deb' })
     )
   })
 
   it('choisit le .deb parmi plusieurs assets', async () => {
     const opts = baseOpts()
-    opts._fetchJson = vi.fn().mockResolvedValue({
-      tag_name: 'v2.0.0',
-      assets: [{ name: 'app.AppImage', browser_download_url: 'https://x/a' }, asset],
-    })
+    opts._fetchJson = vi.fn().mockResolvedValue(releaseWith([{ name: 'app.AppImage', browser_download_url: 'https://x/a' }, asset]))
     opts._downloadFile = vi.fn().mockResolvedValue(undefined)
-    opts._exec = vi.fn((cmd, cb) => cb(null))
+    opts._execFile = vi.fn((cmd, args, cb) => cb(null))
 
     await _upgradeDeb(opts)
 
@@ -550,7 +722,7 @@ describe('_upgradeDeb — chemins restants', () => {
 
   it('ne télécharge rien si l’utilisateur refuse', async () => {
     const opts = baseOpts()
-    opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v2.0.0', assets: [asset] })
+    opts._fetchJson = vi.fn().mockResolvedValue(releaseWith([asset]))
     opts._downloadFile = vi.fn()
     opts.dialog.showMessageBox.mockResolvedValueOnce({ response: 1 })
 
@@ -561,16 +733,16 @@ describe('_upgradeDeb — chemins restants', () => {
 
   it('signale un téléchargement qui échoue', async () => {
     const opts = baseOpts()
-    opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v2.0.0', assets: [asset] })
+    opts._fetchJson = vi.fn().mockResolvedValue(releaseWith([asset]))
     opts._downloadFile = vi.fn().mockRejectedValue(new Error('disque plein'))
-    opts._exec = vi.fn()
+    opts._execFile = vi.fn()
 
     await _upgradeDeb(opts)
 
     expect(opts.dialog.showMessageBox).toHaveBeenCalledWith(
       win, expect.objectContaining({ type: 'error', title: 'update_failed_title' })
     )
-    expect(opts._exec).not.toHaveBeenCalled()
+    expect(opts._execFile).not.toHaveBeenCalled()
   })
 
   it('reste muet hors du menu quand rien ne va', async () => {
@@ -586,7 +758,7 @@ describe('_upgradeDeb — chemins restants', () => {
 
   it('reste muet sur un .deb introuvable hors du menu', async () => {
     const opts = baseOpts({ fromMenu: false })
-    opts._fetchJson = vi.fn().mockResolvedValue({ tag_name: 'v2.0.0', assets: [] })
+    opts._fetchJson = vi.fn().mockResolvedValue(releaseWith([]))
 
     await _upgradeDeb(opts)
 
@@ -644,39 +816,17 @@ describe('isNewer', () => {
 })
 
 describe('setupAutoUpdater — remontée des erreurs', () => {
-  it('affiche une erreur du moteur de mise à jour', () => {
+  it('journalise une erreur du moteur sans ouvrir un second dialogue', () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
     const deps = makeDeps()
     setupAutoUpdater(deps)
 
     deps.autoUpdater.handlers.error(new Error('serveur injoignable'))
-
-    expect(deps.dialog.showMessageBox).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ type: 'error', message: 'serveur injoignable' }),
-    )
-  })
-
-  it('accepte une erreur qui n’est pas un Error', () => {
-    const deps = makeDeps()
-    setupAutoUpdater(deps)
-
     deps.autoUpdater.handlers.error('panne sèche')
 
-    expect(deps.dialog.showMessageBox).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ message: 'panne sèche' }),
-    )
-  })
-
-  it('ignore l’absence d’app-update.yml des anciens DMG', () => {
-    const deps = makeDeps()
-    setupAutoUpdater(deps)
-
-    const err = new Error('no such file')
-    err.code = 'ENOENT'
-    deps.autoUpdater.handlers.error(err)
-
     expect(deps.dialog.showMessageBox).not.toHaveBeenCalled()
+    expect(log).toHaveBeenCalledTimes(2)
+    log.mockRestore()
   })
 
   it('propose de redémarrer dès que la mise à jour est téléchargée', () => {
@@ -732,5 +882,154 @@ describe('checkForUpdates — échec du téléchargement', () => {
       expect.anything(),
       expect.objectContaining({ title: 'no_update_title' }),
     )
+  })
+})
+
+describe('_upgradeManual — installs that cannot update themselves', () => {
+  const { _upgradeManual } = requireSrc('main/lib/updater.js')
+  const win = {}
+  const opts = (over = {}) => ({
+    dialog: { showMessageBox: vi.fn().mockResolvedValue({ response: 0 }) },
+    app: { getVersion: () => '1.0.0' },
+    win, t: (k) => k, fromMenu: true, openExternal: vi.fn(),
+    _fetchJson: vi.fn().mockResolvedValue({ tag_name: 'v2.0.0' }),
+    ...over,
+  })
+
+  it('opens the release page when the user accepts', async () => {
+    const o = opts()
+    await _upgradeManual(o)
+    expect(o.openExternal).toHaveBeenCalledWith('https://github.com/light-cut-vidz/light-cut-vidz/releases/tag/v2.0.0')
+  })
+
+  it('opens nothing when the user says later', async () => {
+    const o = opts()
+    o.dialog.showMessageBox.mockResolvedValueOnce({ response: 1 })
+    await _upgradeManual(o)
+    expect(o.openExternal).not.toHaveBeenCalled()
+  })
+
+  it('says so when already up to date (menu only)', async () => {
+    const o = opts({ _fetchJson: vi.fn().mockResolvedValue({ tag_name: 'v1.0.0' }) })
+    await _upgradeManual(o)
+    expect(o.dialog.showMessageBox).toHaveBeenCalledWith(win, expect.objectContaining({ title: 'no_update_title' }))
+    const quiet = opts({ fromMenu: false, _fetchJson: vi.fn().mockResolvedValue({ tag_name: 'v1.0.0' }) })
+    await _upgradeManual(quiet)
+    expect(quiet.dialog.showMessageBox).not.toHaveBeenCalled()
+  })
+
+  it('rejects a malformed tag', async () => {
+    const o = opts({ _fetchJson: vi.fn().mockResolvedValue({ tag_name: 'v2.0.0$(x)' }) })
+    await _upgradeManual(o)
+    expect(o.openExternal).not.toHaveBeenCalled()
+  })
+
+  it('reports a network failure from the menu only', async () => {
+    const o = opts({ _fetchJson: vi.fn().mockRejectedValue(new Error('net')) })
+    await _upgradeManual(o)
+    expect(o.dialog.showMessageBox).toHaveBeenCalledWith(win, expect.objectContaining({ type: 'error' }))
+    const quiet = opts({ fromMenu: false, _fetchJson: vi.fn().mockRejectedValue(new Error('net')) })
+    await _upgradeManual(quiet)
+    expect(quiet.dialog.showMessageBox).not.toHaveBeenCalled()
+  })
+
+  it('is what checkForUpdates picks for a manual install', async () => {
+    const manual = vi.fn()
+    const { checkForUpdates } = requireSrc('main/lib/updater.js')
+    await checkForUpdates({ autoUpdater: {}, dialog: {}, app: {}, getWindow: () => win, t: k => k, state: {}, isDev: false, isMac: false, isDeb: false, isManual: true, fromMenu: true, _manualHandler: manual })
+    expect(manual).toHaveBeenCalled()
+  })
+})
+
+// ─── Release notes in the update dialog ─────────────────────────────────────
+
+describe('release notes in the update dialog', () => {
+  const { loadReleaseNotes, fetchText } = requireSrc('main/lib/updater.js')
+  const CHANGES = `## [2.0.0] - 2026-05-01\n### Added\n- Shiny thing\n\n## [1.5.0] - 2026-04-01\n### Fixed\n- Old bug\n\n## [1.0.0] - 2026-01-01\n- first\n`
+  const win = {}
+
+  it('loadReleaseNotes lists every version between the installed one and the new one', async () => {
+    const _fetchText = vi.fn().mockResolvedValue(CHANGES)
+    const notes = await loadReleaseNotes({ lang: 'en', current: '1.0.0', latest: '2.0.0', _fetchText })
+    expect(notes).toContain('2.0.0')
+    expect(notes).toContain('1.5.0')
+    expect(notes).not.toContain('first')
+  })
+
+  it('reads the changelog at the new tag, in the user language', async () => {
+    const _fetchText = vi.fn().mockResolvedValue(CHANGES)
+    await loadReleaseNotes({ lang: 'fr', current: '1.0.0', latest: '2.0.0', _fetchText })
+    expect(_fetchText).toHaveBeenCalledWith('https://raw.githubusercontent.com/light-cut-vidz/light-cut-vidz/v2.0.0/CHANGELOG.fr.md')
+    await loadReleaseNotes({ lang: 'en', current: '1.0.0', latest: '2.0.0', _fetchText })
+    expect(_fetchText).toHaveBeenLastCalledWith('https://raw.githubusercontent.com/light-cut-vidz/light-cut-vidz/v2.0.0/CHANGELOG.md')
+  })
+
+  it('returns nothing, never an error, when the changelog cannot be fetched', async () => {
+    const _fetchText = vi.fn().mockRejectedValue(new Error('404'))
+    await expect(loadReleaseNotes({ lang: 'en', current: '1.0.0', latest: '2.0.0', _fetchText })).resolves.toBe('')
+  })
+
+  it('does not fetch anything without a language', async () => {
+    const _fetchText = vi.fn()
+    await expect(loadReleaseNotes({ lang: '', current: '1.0.0', latest: '2.0.0', _fetchText })).resolves.toBe('')
+    expect(_fetchText).not.toHaveBeenCalled()
+  })
+
+  const macOpts = (over = {}) => ({
+    dialog: { showMessageBox: vi.fn().mockResolvedValue({ response: 1 }) },
+    app: { getVersion: () => '1.0.0', exit: vi.fn(), getPath: () => '' },
+    win, t: (k, ...a) => (a.length ? `${k}:${a.join(',')}` : k), fromMenu: true, lang: 'en',
+    _fetchJson: vi.fn().mockResolvedValue(releaseWith([{ name: 'LightCutVidz-mac-arm64.zip', browser_download_url: 'https://dl/a.zip' }])),
+    _fetchText: vi.fn().mockResolvedValue(CHANGES),
+    ...over,
+  })
+
+  it('shows what is new in the macOS update question', async () => {
+    const o = macOpts()
+    await _upgradeMac(o)
+    const call = o.dialog.showMessageBox.mock.calls.find(([, d]) => d.title === 'update_available_title')
+    expect(call[1].detail).toContain('update_available_detail')
+    expect(call[1].detail).toContain('update_whats_new')
+    expect(call[1].detail).toContain('• Shiny thing')
+  })
+
+  it('shows what is new in the deb update question', async () => {
+    const o = { ...macOpts(), _fetchJson: vi.fn().mockResolvedValue(releaseWith([{ name: 'x.deb', browser_download_url: 'https://dl/x.deb' }])) }
+    await _upgradeDeb(o)
+    const call = o.dialog.showMessageBox.mock.calls.find(([, d]) => d.title === 'update_available_title')
+    expect(call[1].detail).toContain('• Shiny thing')
+  })
+
+  it('shows what is new for a manual install', async () => {
+    const o = { ...macOpts(), _fetchJson: vi.fn().mockResolvedValue({ tag_name: 'v2.0.0' }), openExternal: vi.fn() }
+    await requireSrc('main/lib/updater.js')._upgradeManual(o)
+    expect(o.dialog.showMessageBox.mock.calls[0][1].detail).toContain('• Shiny thing')
+  })
+
+  it('shows what is new on the AppImage path (electron-updater)', async () => {
+    const deps = makeDeps({ fromMenu: true, getLang: () => 'en', _fetchText: vi.fn().mockResolvedValue(CHANGES) })
+    deps.autoUpdater.checkForUpdates.mockResolvedValue({ updateInfo: { version: '2.0.0' } })
+    deps.dialog.showMessageBox.mockResolvedValue({ response: 1 })
+    await checkForUpdates(deps)
+    expect(deps.dialog.showMessageBox.mock.calls[0][1].detail).toContain('• Shiny thing')
+  })
+
+  it('still asks the question when the notes are unavailable', async () => {
+    const o = macOpts({ _fetchText: vi.fn().mockRejectedValue(new Error('offline')) })
+    await _upgradeMac(o)
+    const call = o.dialog.showMessageBox.mock.calls.find(([, d]) => d.title === 'update_available_title')
+    expect(call[1].detail).toBe('update_available_detail')
+  })
+
+  it('fetchText returns the body, and refuses plain HTTP and error statuses', async () => {
+    const reply = (status, body) => (_o, cb) => {
+      const handlers = {}
+      const res = { statusCode: status, resume: () => {}, destroy: () => {}, setEncoding: () => {}, on: (e, f) => { handlers[e] = f; return res } }
+      queueMicrotask(() => { cb(res); handlers.data && handlers.data(body); handlers.end && handlers.end() })
+      return { on: () => {} }
+    }
+    await expect(fetchText('https://x/y.md', reply(200, '## [1.0.0]'))).resolves.toBe('## [1.0.0]')
+    await expect(fetchText('https://x/y.md', reply(404, ''))).rejects.toThrow('404')
+    await expect(fetchText('http://x/y.md', reply(200, ''))).rejects.toThrow('HTTPS')
   })
 })

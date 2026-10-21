@@ -31,7 +31,7 @@ export default function GeometrySettings({
   const { t } = useT()
 
   // Closes the gesture so a whole slider scrub is a single undo step.
-  const commitProps = { onPointerUp: onCommit, onKeyUp: onCommit, onBlur: onCommit }
+  const commitProps = { onPointerUp: onCommit, onPointerCancel: onCommit, onKeyUp: onCommit, onBlur: onCommit }
 
   const handleRotate = () => {
     onRotationChange((rotation + 90) % 360)

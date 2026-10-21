@@ -56,30 +56,22 @@ describe('useT hook', () => {
     expect(result.current.t.tool_speed).toBe('Vitesse')
   })
 
-  it('switches language with setLang', () => {
+  it('remembers a language chosen from the native menu', () => {
     const setItem = vi.fn()
-    Object.defineProperty(window, 'localStorage', {
-      value: {
-        ...window.localStorage,
-        getItem: () => null,
-        setItem,
-      },
-      configurable: true,
-    })
+    Object.defineProperty(window, 'localStorage', { value: { ...window.localStorage, getItem: () => null, setItem }, configurable: true })
+    let handler: ((l: string) => void) | null = null
+    window.electronAPI = { ...window.electronAPI, onMenuSetLanguage: (cb: (l: string) => void) => { handler = cb; return () => {} }, setLanguage: () => {} }
     const { result } = renderHook(() => useT(), { wrapper: wrap })
-    expect(result.current.lang).toBe('en')
-    act(() => { result.current.setLang('fr') })
-    expect(result.current.lang).toBe('fr')
+    act(() => { handler!('fr') })
     expect(result.current.t.tool_speed).toBe('Vitesse')
     expect(setItem).toHaveBeenCalledWith('lcv_lang', 'fr')
   })
 
-  it('calls electronAPI.setLanguage when language changes', () => {
+  it('tells the main process its language once at startup', () => {
     const setLanguageSpy = vi.fn()
     window.electronAPI = { ...window.electronAPI, setLanguage: setLanguageSpy }
-    const { result } = renderHook(() => useT(), { wrapper: wrap })
-    act(() => { result.current.setLang('fr') })
-    expect(setLanguageSpy).toHaveBeenCalledWith('fr')
+    renderHook(() => useT(), { wrapper: wrap })
+    expect(setLanguageSpy).toHaveBeenCalledWith('en')
   })
 
   it('listens to native menu language changes', () => {
@@ -130,5 +122,29 @@ describe('LangProvider rendering', () => {
     }
     const { getByText } = render(<LangProvider><Inner /></LangProvider>)
     expect(getByText('Speed')).toBeTruthy()
+  })
+})
+
+describe('LangProvider — first launch', () => {
+  const setNavigatorLanguage = (lang: string) => Object.defineProperty(window.navigator, 'language', { value: lang, configurable: true })
+  function wrap({ children }: { children: React.ReactNode }) { return <LangProvider>{children}</LangProvider> }
+
+  it('follows a French system language', () => {
+    setNavigatorLanguage('fr-FR')
+    expect(renderHook(() => useT(), { wrapper: wrap }).result.current.lang).toBe('fr')
+    setNavigatorLanguage('en-US')
+  })
+
+  it('falls back to English for any other language', () => {
+    setNavigatorLanguage('de-DE')
+    expect(renderHook(() => useT(), { wrapper: wrap }).result.current.lang).toBe('en')
+    setNavigatorLanguage('en-US')
+  })
+
+  it('a saved choice wins over the system language', () => {
+    setNavigatorLanguage('fr-FR')
+    ;(window.localStorage as { getItem: (k: string) => string | null }).getItem = () => 'en'
+    expect(renderHook(() => useT(), { wrapper: wrap }).result.current.lang).toBe('en')
+    setNavigatorLanguage('en-US')
   })
 })

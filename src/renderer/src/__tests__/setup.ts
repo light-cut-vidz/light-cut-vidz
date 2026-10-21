@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom'
+import '@testing-library/jest-dom/vitest'
 
 // Mock localStorage for tests
 const localStorageMock = {
@@ -11,13 +11,23 @@ const localStorageMock = {
 }
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
+// jsdom does not implement media playback; without these every video element
+// prints "Not implemented: HTMLMediaElement's load() method" dozens of times.
+Object.defineProperty(window.HTMLMediaElement.prototype, 'load', { configurable: true, value: () => {} })
+
 // Minimal Electron API mock for tests that render components using LangProvider
 window.electronAPI = {
   getPathForFile: () => '',
   toFileUrl: async (filePath: string) => `lcv-file://local${filePath}`,
   openVideo: async () => null,
   saveVideo: async () => null,
-  probeVideo: async () => ({ duration: 0, width: 0, height: 0 }),
+  cancelFfmpeg: async () => {},
+  saveProject: async () => null,
+  getChangelog: async () => [],
+  onMenuShowChangelog: () => () => {},
+  setDirty: () => {},
+  onMenuSaveProject: () => () => {},
+  onMenuLoadProject: () => () => {},
   previewVideo: async () => '',
   openSubtitleFile: async () => null,
   onPreviewProgress: () => () => {},

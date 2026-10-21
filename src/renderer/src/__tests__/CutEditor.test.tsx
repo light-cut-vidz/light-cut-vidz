@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import React from 'react'
 import CutEditor from '../components/CutEditor'
 import { LangProvider } from '../i18n'
@@ -100,6 +100,7 @@ describe('CutEditor', () => {
       />
     )
     const [, endInput] = screen.getAllByRole('textbox')
+    act(() => endInput.focus())
     fireEvent.change(endInput, { target: { value: '0:35.0' } })
     fireEvent.keyDown(endInput, { key: 'Enter' })
     expect(onTimeInput).toHaveBeenCalledWith('seg1', 'end', '0:35.0')
@@ -175,10 +176,31 @@ describe('CutEditor editing lifecycle', () => {
 
   it('commits the start on Enter', () => {
     const { startInput, onTimeInput } = setup()
-    fireEvent.focus(startInput)
+    act(() => startInput.focus())
     fireEvent.change(startInput, { target: { value: '0:14.0' } })
     fireEvent.keyDown(startInput, { key: 'Enter' })
     expect(onTimeInput).toHaveBeenCalledWith('seg1', 'start', '0:14.0')
+  })
+
+  // Enter used to commit and then blur, which committed a second time: two undo
+  // steps for one edit.
+  it('commits exactly once on Enter', () => {
+    const { startInput, onTimeInput } = setup()
+    act(() => startInput.focus())
+    fireEvent.change(startInput, { target: { value: '0:14.0' } })
+    fireEvent.keyDown(startInput, { key: 'Enter' })
+    expect(onTimeInput).toHaveBeenCalledTimes(1)
+  })
+
+  // Focusing a field and leaving it hands back the display text, rounded to a
+  // tenth: committing that would nudge the boundary and add an undo step.
+  it('does not commit when the field was only focused and left', () => {
+    const { startInput, endInput, onTimeInput } = setup()
+    act(() => startInput.focus())
+    act(() => startInput.blur())
+    act(() => endInput.focus())
+    act(() => endInput.blur())
+    expect(onTimeInput).not.toHaveBeenCalled()
   })
 
   it('ignores other keys', () => {
@@ -198,7 +220,7 @@ describe('CutEditor editing lifecycle', () => {
 
   it('commits the end on Enter', () => {
     const { endInput, onTimeInput } = setup()
-    fireEvent.focus(endInput)
+    act(() => endInput.focus())
     fireEvent.change(endInput, { target: { value: '0:40.0' } })
     fireEvent.keyDown(endInput, { key: 'Enter' })
     expect(onTimeInput).toHaveBeenCalledWith('seg1', 'end', '0:40.0')

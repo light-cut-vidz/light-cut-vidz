@@ -1,12 +1,13 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react'
+import React, { useRef, useEffect, useCallback, useMemo } from 'react'
 import type { CropRect } from '../App'
 import { useT } from '../i18n'
+import { useVideoRect } from '../hooks/useVideoRect'
 import './CropOverlay.css'
 
 interface Props {
   videoRef: React.RefObject<HTMLVideoElement | null>
   crop: CropRect | null
-  onChange: (crop: CropRect) => void
+  onChange?: (crop: CropRect) => void
   onChangeLive: (crop: CropRect) => void
   onCommit: () => void
   onApply: () => void
@@ -14,15 +15,24 @@ interface Props {
 
 type Handle = 'tl' | 'tr' | 'bl' | 'br' | 'move'
 
-export default function CropOverlay({ videoRef, crop, onChange, onChangeLive, onCommit, onApply }: Props) {
+export default function CropOverlay({ videoRef, crop, onChangeLive, onCommit, onApply }: Props) {
   const { t } = useT()
   const overlayRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ handle: Handle; startX: number; startY: number; initCrop: CropRect } | null>(null)
-  const [videoNatural, setVideoNatural] = useState({ w: 1, h: 1 })
-  const [displayRect, setDisplayRect] = useState({ x: 0, y: 0, w: 0, h: 0, scale: 1 })
+  const video = useVideoRect(videoRef)
+  const natural = {
+    w: video?.naturalWidth || video?.width || 1,
+    h: video?.naturalHeight || video?.height || 1,
+  }
+  const scale = video ? video.width / natural.w : 1
+  const displayRect = { x: video?.left ?? 0, y: video?.top ?? 0, scale }
 
-  const [rect, setRect] = useState<CropRect>(
-    crop ?? { x: 0, y: 0, w: 100, h: 100 }
+  // The stored crop is the single source of truth, so Undo/Redo while the panel
+  // is open moves the box. Until the user draws, the box shows the full frame
+  // without recording a crop (which would be exported even if never touched).
+  const rect = useMemo<CropRect>(
+    () => crop ?? { x: 0, y: 0, w: natural.w, h: natural.h },
+    [crop, natural.w, natural.h],
   )
 
   // Enter key applies
@@ -31,33 +41,6 @@ export default function CropOverlay({ videoRef, crop, onChange, onChangeLive, on
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onApply])
-
-  const updateDisplay = useCallback(() => {
-    const video = videoRef.current
-    const overlay = overlayRef.current
-    if (!video || !overlay) return
-    const vr = video.getBoundingClientRect()
-    const or = overlay.getBoundingClientRect()
-    const scale = vr.width / (video.videoWidth || vr.width)
-    setDisplayRect({ x: vr.left - or.left, y: vr.top - or.top, w: vr.width, h: vr.height, scale })
-    setVideoNatural({ w: video.videoWidth || vr.width, h: video.videoHeight || vr.height })
-  }, [videoRef])
-
-  useEffect(() => {
-    updateDisplay()
-    window.addEventListener('resize', updateDisplay)
-    return () => window.removeEventListener('resize', updateDisplay)
-  }, [updateDisplay])
-
-  // Init full frame if no crop
-  useEffect(() => {
-    if (!crop && videoNatural.w > 1) {
-      const full = { x: 0, y: 0, w: videoNatural.w, h: videoNatural.h }
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setRect(full)
-      onChange(full)
-    }
-  }, [videoNatural]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const toD = (r: CropRect) => ({
     x: displayRect.x + r.x * displayRect.scale,
@@ -79,35 +62,37 @@ export default function CropOverlay({ videoRef, crop, onChange, onChangeLive, on
     const dy = e.clientY - startY
     const sc = displayRect.scale
     const min = 20
+    const vw = natural.w
+    const vh = natural.h
     let nx = initCrop.x, ny = initCrop.y, nw = initCrop.w, nh = initCrop.h
 
     if (handle === 'move') {
-      nx = Math.max(0, Math.min(videoNatural.w - nw, initCrop.x + dx / sc))
-      ny = Math.max(0, Math.min(videoNatural.h - nh, initCrop.y + dy / sc))
+      nx = Math.max(0, Math.min(vw - nw, initCrop.x + dx / sc))
+      ny = Math.max(0, Math.min(vh - nh, initCrop.y + dy / sc))
     } else {
       if (handle === 'tl' || handle === 'bl') {
         nx = Math.max(0, Math.min(initCrop.x + initCrop.w - min, initCrop.x + dx / sc))
         nw = initCrop.w - (nx - initCrop.x)
       }
       if (handle === 'tr' || handle === 'br') {
-        nw = Math.max(min, Math.min(videoNatural.w - initCrop.x, initCrop.w + dx / sc))
+        nw = Math.max(min, Math.min(vw - initCrop.x, initCrop.w + dx / sc))
       }
       if (handle === 'tl' || handle === 'tr') {
         ny = Math.max(0, Math.min(initCrop.y + initCrop.h - min, initCrop.y + dy / sc))
         nh = initCrop.h - (ny - initCrop.y)
       }
       if (handle === 'bl' || handle === 'br') {
-        nh = Math.max(min, Math.min(videoNatural.h - initCrop.y, initCrop.h + dy / sc))
+        nh = Math.max(min, Math.min(vh - initCrop.y, initCrop.h + dy / sc))
       }
     }
 
-    const updated = { x: Math.round(nx), y: Math.round(ny), w: Math.round(nw), h: Math.round(nh) }
-    setRect(updated)
-    onChangeLive(updated)
-  }, [displayRect, videoNatural, onChangeLive])
+    onChangeLive({ x: Math.round(nx), y: Math.round(ny), w: Math.round(nw), h: Math.round(nh) })
+  }, [displayRect.scale, natural.w, natural.h, onChangeLive])
 
   // Closing the gesture here is what turns a whole drag into one undo step.
-  const onPointerUp = useCallback(() => {
+  // A cancelled pointer (focus lost, touch interrupted) must close it too, or the
+  // next edit elsewhere would be folded into this gesture.
+  const endDrag = useCallback(() => {
     if (dragRef.current) onCommit()
     dragRef.current = null
   }, [onCommit])
@@ -119,7 +104,8 @@ export default function CropOverlay({ videoRef, crop, onChange, onChangeLive, on
       ref={overlayRef}
       className="crop-overlay"
       onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
     >
       {/* Dark areas outside selection */}
       <div className="crop-shade" style={{ top: 0, left: 0, right: 0, height: d.y }} />

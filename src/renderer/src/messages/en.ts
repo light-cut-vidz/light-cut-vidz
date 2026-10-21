@@ -70,8 +70,8 @@ export const en = {
   // App
   app_open_video: 'Open video',
   app_export: 'Export',
-  app_undo: 'Undo (Ctrl+Z)',
-  app_redo: 'Redo (Ctrl+Y)',
+  app_undo: 'Undo',
+  app_redo: 'Redo',
   fullscreen_hint_mac: 'Full screen — press Ctrl+Cmd+F or Esc to exit',
   fullscreen_hint_linux: 'Full screen — press F11 or Esc to exit',
 
@@ -115,6 +115,24 @@ export const en = {
   subtitles_position_bottom: 'Bottom',
   export_subtitles: 'Subtitles',
   export_subtitles_none: 'None',
+
+  // Errors, confirmations and long-running work
+  error_video_unreadable: 'This video cannot be played. Its format may not be supported.',
+  error_not_video: 'That file is not a supported video (MP4, MOV, AVI, MKV, WebM, FLV, M4V).',
+  confirm_open_new: 'Open another video? Your edits on the current one will be lost.',
+  loading_cancel: 'Cancel',
+  subtitles_empty: 'No subtitles found in that file.',
+  subtitles_error: 'Could not read that subtitle file.',
+  export_stop: 'Stop export',
+  export_cancelled: 'Export cancelled',
+  export_nothing: 'Nothing to export: every part of the video is cut.',
+  export_already_running: 'An export is already running.',
+  project_saved: 'Project saved',
+  project_save_failed: 'Could not save the project.',
+  changelog_title: 'What\'s new',
+  changelog_close: 'Close',
+  changelog_empty: 'No changelog available.',
+  changelog_version: (v: string) => `Version ${v}`,
 }
 
 export type Translations = typeof en

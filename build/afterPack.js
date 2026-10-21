@@ -1,10 +1,10 @@
 const path = require('path')
 const { chmodBinaries } = require('../src/main/lib/chmodBinaries')
 
-const BINARY_NAMES = ['ffmpeg', 'ffprobe']
+const BINARY_NAMES = ['ffmpeg']
 
 // electron-builder hook: restores the executable bit on the unpacked
-// ffmpeg/ffprobe binaries, which packaging doesn't always preserve (see
+// ffmpeg binary, which packaging doesn't always preserve (see
 // src/main/lib/chmodBinaries.js).
 module.exports = async function afterPack(context) {
   const { appOutDir, electronPlatformName, packager } = context

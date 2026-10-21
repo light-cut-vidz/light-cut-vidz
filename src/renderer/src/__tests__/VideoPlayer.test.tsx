@@ -79,11 +79,25 @@ describe('VideoPlayer', () => {
     expect(video.style.transform).toContain('rotateZ(95deg)')
   })
 
-  it('applies perspective rotations', () => {
+  // Perspective is drawn as the same projective map the export applies, which
+  // needs the video's pixel size; until it is known the plain rotation shows.
+  it('waits for the video size before applying a perspective', () => {
     const { container } = render(<Harness perspectiveH={20} perspectiveV={10} />)
-    const video = container.querySelector('video') as HTMLVideoElement
-    expect(video.style.transform).toContain('rotateY(20deg)')
-    expect(video.style.transform).toContain('rotateX(10deg)')
+    expect((container.querySelector('video') as HTMLVideoElement).style.transform).toBe('rotateZ(0deg)')
+  })
+
+  it('applies the export-equivalent perspective matrix once the size is known', () => {
+    const sizes: Record<string, number> = { offsetWidth: 640, offsetHeight: 360, offsetLeft: 0, offsetTop: 0, videoWidth: 1280 }
+    const saved = Object.entries(sizes).map(([k]) => [k, Object.getOwnPropertyDescriptor(HTMLVideoElement.prototype, k) ?? Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)] as const)
+    for (const [k, v] of Object.entries(sizes)) Object.defineProperty(HTMLVideoElement.prototype, k, { configurable: true, get: () => v })
+    try {
+      const { container } = render(<Harness perspectiveH={20} perspectiveV={10} />)
+      const video = container.querySelector('video') as HTMLVideoElement
+      expect(video.style.transform).toMatch(/^matrix3d\(/)
+      expect(video.style.transformOrigin).toBe('0 0')
+    } finally {
+      for (const [k, d] of saved) { if (d) Object.defineProperty(HTMLVideoElement.prototype, k, d); else delete (HTMLVideoElement.prototype as unknown as Record<string, unknown>)[k] }
+    }
   })
 
   it('emits onTimeUpdate with current time', () => {
@@ -147,5 +161,53 @@ describe('VideoPlayer', () => {
     Object.defineProperty(video, 'ended', { configurable: true, value: false })
     fireEvent.click(video)
     expect(pauseSpy).toHaveBeenCalledOnce()
+  })
+})
+
+describe('VideoPlayer — neutral and errors', () => {
+  function Neutral({ neutral, onError }: { neutral?: boolean; onError?: () => void }) {
+    const videoRef = useRef<HTMLVideoElement | null>(null)
+    return (
+      <VideoPlayer
+        videoRef={videoRef} src="file:///x.mp4" speed={1} muted={false} filterId="none"
+        rotation={90} straighten={0} perspectiveH={0} perspectiveV={0} neutral={neutral}
+        onTimeUpdate={vi.fn()} onDurationLoaded={vi.fn()} onPlayPause={vi.fn()} onError={onError}
+      />
+    )
+  }
+
+  // Crop boxes are drawn in source pixels, so the picture is shown untransformed
+  // while the crop panel is open.
+  it('drops the rotation while neutral', () => {
+    const { container } = render(<Neutral neutral />)
+    expect((container.querySelector('video') as HTMLElement).style.transform).toBe('none')
+  })
+
+  it('applies the rotation otherwise', () => {
+    const { container } = render(<Neutral />)
+    expect((container.querySelector('video') as HTMLElement).style.transform).toContain('rotateZ(90deg)')
+  })
+
+  it('reports a playback error', () => {
+    const onError = vi.fn()
+    const { container } = render(<Neutral onError={onError} />)
+    fireEvent.error(container.querySelector('video')!)
+    expect(onError).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not call load() itself: changing src already reloads the element', () => {
+    const load = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const { rerender } = render(<Harness src="file:///a.mp4" />)
+    load.mockClear()
+    rerender(<Harness src="file:///b.mp4" />)
+    expect(load).not.toHaveBeenCalled()
+    load.mockRestore()
+  })
+})
+
+describe('VideoPlayer — canvas access', () => {
+  it('requests the media with CORS so drawing it to a canvas does not taint it', () => {
+    const { container } = render(<Harness />)
+    expect(container.querySelector('video')?.getAttribute('crossorigin')).toBe('anonymous')
   })
 })

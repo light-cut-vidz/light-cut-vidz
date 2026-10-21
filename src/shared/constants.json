@@ -1,0 +1,19 @@
+{
+  "videoExtensions": [
+    "mp4",
+    "mov",
+    "avi",
+    "mkv",
+    "webm",
+    "flv",
+    "m4v"
+  ],
+  "rainbowPalette": [
+    "#FF3B5C",
+    "#FFB800",
+    "#00E5A0",
+    "#00B4FF",
+    "#B14EFF",
+    "#FF6EC7"
+  ]
+}

@@ -188,3 +188,70 @@ describe('SubtitlesPanel — accent colour', () => {
     expect(onStyleChange).toHaveBeenCalledWith(expect.objectContaining({ accentColor: '#00ff00' }))
   })
 })
+
+describe('SubtitlesPanel — undo granularity and errors', () => {
+  it('sends slider changes through the live callback and closes the gesture on release', () => {
+    const onStyleChange = vi.fn()
+    const onStyleChangeLive = vi.fn()
+    const onCommit = vi.fn()
+    const { container } = renderWithI18n(
+      <SubtitlesPanel {...makeProps({ subtitles: loaded, onStyleChange, onStyleChangeLive, onCommit })} />,
+    )
+    const slider = container.querySelector('input[type="range"]') as HTMLInputElement
+    fireEvent.change(slider, { target: { value: '8' } })
+    expect(onStyleChangeLive).toHaveBeenCalledWith(expect.objectContaining({ fontSize: 8 }))
+    expect(onStyleChange).not.toHaveBeenCalled()
+    fireEvent.pointerUp(slider)
+    expect(onCommit).toHaveBeenCalled()
+  })
+
+  it('does the same for colour pickers', () => {
+    const onStyleChangeLive = vi.fn()
+    const onCommit = vi.fn()
+    const { container } = renderWithI18n(
+      <SubtitlesPanel {...makeProps({ subtitles: loaded, onStyleChangeLive, onCommit })} />,
+    )
+    const color = container.querySelector('input[type="color"]') as HTMLInputElement
+    fireEvent.change(color, { target: { value: '#ff0000' } })
+    expect(onStyleChangeLive).toHaveBeenCalledWith(expect.objectContaining({ color: '#ff0000' }))
+    fireEvent.blur(color)
+    expect(onCommit).toHaveBeenCalled()
+  })
+
+  it('falls back to the plain callback when no live one is provided', () => {
+    const onStyleChange = vi.fn()
+    const { container } = renderWithI18n(<SubtitlesPanel {...makeProps({ subtitles: loaded, onStyleChange })} />)
+    fireEvent.change(container.querySelector('input[type="range"]') as HTMLInputElement, { target: { value: '9' } })
+    expect(onStyleChange).toHaveBeenCalledWith(expect.objectContaining({ fontSize: 9 }))
+  })
+
+  it('reports a file with no usable cue instead of importing nothing', async () => {
+    window.electronAPI.openSubtitleFile = vi.fn().mockResolvedValue({ filePath: '/x/empty.srt', content: 'not a subtitle file' })
+    const onImport = vi.fn()
+    const onError = vi.fn()
+    renderWithI18n(<SubtitlesPanel {...makeProps({ onImport, onError })} />)
+    fireEvent.click(screen.getByRole('button'))
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('empty'))
+    expect(onImport).not.toHaveBeenCalled()
+  })
+
+  it('reports a file that cannot be read instead of leaving an unhandled rejection', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    window.electronAPI.openSubtitleFile = vi.fn().mockRejectedValue(new Error('EACCES'))
+    const onError = vi.fn()
+    renderWithI18n(<SubtitlesPanel {...makeProps({ onError })} />)
+    fireEvent.click(screen.getByRole('button'))
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('read'))
+    log.mockRestore()
+  })
+})
+
+describe('SubtitlesPanel — fonts', () => {
+  it('only offers families that exist on every platform', () => {
+    const { container } = renderWithI18n(<SubtitlesPanel {...makeProps({ subtitles: loaded })} />)
+    const fonts = Array.from(container.querySelectorAll('select option')).map(o => o.textContent)
+    expect(fonts).toContain('Arial')
+    expect(fonts).toContain('sans-serif')
+    for (const missing of ['Calibri', 'Segoe UI', 'Futura', 'Century Gothic', 'Palatino']) expect(fonts).not.toContain(missing)
+  })
+})

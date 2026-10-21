@@ -50,6 +50,7 @@ function VideoControls({ currentTime, duration, isPlaying, onPlayPause, onSeek }
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         onPointerLeave={() => setHoverTime(null)}
       >
         <div className="seekbar-track">

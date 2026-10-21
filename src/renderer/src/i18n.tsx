@@ -9,40 +9,37 @@ export const translations = { en, fr }
 
 interface LangCtx {
   lang: Lang
-  setLang: (l: Lang) => void
   t: Translations
 }
 
-const LangContext = createContext<LangCtx>({ lang: 'en', setLang: () => {}, t: en })
+const LangContext = createContext<LangCtx>({ lang: 'en', t: en })
 
 export function LangProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Lang>(() => {
-    const saved = localStorage.getItem('lcv_lang')
-    return saved === 'fr' ? 'fr' : 'en'
+    let saved: string | null = null
+    try { saved = localStorage.getItem('lcv_lang') } catch { /* storage blocked: use the system language */ }
+    if (saved === 'fr' || saved === 'en') return saved
+    // First launch: follow the system language rather than always English.
+    return navigator.language?.toLowerCase().startsWith('fr') ? 'fr' : 'en'
   })
 
-  const setLang = (l: Lang) => {
-    setLangState(l)
-    localStorage.setItem('lcv_lang', l)
-    window.electronAPI.setLanguage(l)
-  }
-
   useEffect(() => {
-    // Sync current lang to main process on startup so the menu checkmark is correct.
+    // The language is switched from the native menu only; sync the current one to
+    // the main process on startup so the menu checkmark is correct.
     window.electronAPI.setLanguage(lang)
 
     // Listen for language changes triggered from the native menu.
     const off = window.electronAPI.onMenuSetLanguage((l: string) => {
       if (l === 'en' || l === 'fr') {
         setLangState(l)
-        localStorage.setItem('lcv_lang', l)
+        try { localStorage.setItem('lcv_lang', l) } catch { /* not remembered */ }
       }
     })
     return off
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <LangContext.Provider value={{ lang, setLang, t: translations[lang] }}>
+    <LangContext.Provider value={{ lang, t: translations[lang] }}>
       {children}
     </LangContext.Provider>
   )

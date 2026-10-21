@@ -3,7 +3,7 @@ import { render } from '@testing-library/react'
 import React, { useRef } from 'react'
 import CropFrame from '../components/CropFrame'
 
-function Harness({ videoWidth = 1920, crop = { x: 100, y: 50, w: 300, h: 200 } }) {
+function Harness({ videoWidth = 1920, crop = { x: 100, y: 50, w: 300, h: 200 }, transform, geometry }: { videoWidth?: number; crop?: { x: number; y: number; w: number; h: number }; transform?: string; geometry?: React.ComponentProps<typeof CropFrame>['geometry'] }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   return (
     <div style={{ position: 'relative' }} data-testid="parent">
@@ -11,20 +11,15 @@ function Harness({ videoWidth = 1920, crop = { x: 100, y: 50, w: 300, h: 200 } }
         ref={(el) => {
           if (el) {
             Object.defineProperty(el, 'videoWidth', { value: videoWidth, configurable: true })
-            Object.defineProperty(el, 'getBoundingClientRect', {
-              value: () => ({ left: 10, top: 20, width: 960, height: 540, right: 970, bottom: 560 }),
-              configurable: true,
-            })
-            const parent = el.parentElement!
-            Object.defineProperty(parent, 'getBoundingClientRect', {
-              value: () => ({ left: 0, top: 0, width: 1000, height: 600, right: 1000, bottom: 600 }),
-              configurable: true,
-            })
+            // Layout metrics: unaffected by a CSS rotation, unlike getBoundingClientRect.
+            for (const [key, value] of Object.entries({ offsetLeft: 10, offsetTop: 20, offsetWidth: 960, offsetHeight: 540 })) {
+              Object.defineProperty(el, key, { value, configurable: true })
+            }
           }
           ;(videoRef as { current: HTMLVideoElement | null }).current = el
         }}
       />
-      <CropFrame videoRef={videoRef} crop={crop} />
+      <CropFrame videoRef={videoRef} crop={crop} transform={transform} geometry={geometry} />
     </div>
   )
 }
@@ -39,20 +34,37 @@ describe('CropFrame', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('renders an absolutely-positioned overlay when video has size', () => {
+  it('pins a layer to the picture and places the crop inside it, scaled by 960/1920', () => {
     const { container } = render(<Harness />)
-    const frame = container.querySelector('[style*="position: absolute"]')
-    expect(frame).toBeTruthy()
-  })
-
-  it('scales the crop using video width ratio (960/1920 = 0.5)', () => {
-    const { container } = render(<Harness />)
-    const frame = container.querySelector('[style*="position: absolute"]') as HTMLElement
-    // crop.x=100 * 0.5 = 50, plus video offset 10 → left should be 60
-    expect(frame.style.left).toBe('60px')
-    // crop.y=50 * 0.5 = 25, plus video offset 20 → top should be 45
-    expect(frame.style.top).toBe('45px')
+    const layer = container.querySelector('[style*="position: absolute"]') as HTMLElement
+    expect(layer.style.left).toBe('10px')
+    expect(layer.style.top).toBe('20px')
+    expect(layer.style.width).toBe('960px')
+    const frame = layer.firstElementChild as HTMLElement
+    // crop.x=100 * 0.5 = 50 and crop.y=50 * 0.5 = 25, relative to the picture
+    expect(frame.style.left).toBe('50px')
+    expect(frame.style.top).toBe('25px')
     expect(frame.style.width).toBe('150px')
     expect(frame.style.height).toBe('100px')
+  })
+
+  // The crop is drawn on the unrotated frame: the layer must turn with the video.
+  it('applies the video transform so the frame follows a rotation', () => {
+    const { container } = render(<Harness transform="rotateZ(90deg)" />)
+    const layer = container.querySelector('[style*="position: absolute"]') as HTMLElement
+    expect(layer.style.transform).toBe('rotateZ(90deg)')
+  })
+
+  it('derives the transform from the video geometry', () => {
+    const { container } = render(<Harness geometry={{ rotation: 90, straighten: 0, perspectiveH: 0, perspectiveV: 0, filterId: 'none' }} />)
+    const layer = container.querySelector('[style*="position: absolute"]') as HTMLElement
+    expect(layer.style.transform).toBe('rotateZ(90deg)')
+  })
+
+  it('follows a perspective with a projective matrix pinned to the top-left', () => {
+    const { container } = render(<Harness geometry={{ rotation: 0, straighten: 0, perspectiveH: 20, perspectiveV: 0, filterId: 'none' }} />)
+    const layer = container.querySelector('[style*="position: absolute"]') as HTMLElement
+    expect(layer.style.transform).toMatch(/^matrix3d\(/)
+    expect(layer.style.transformOrigin).toBe('0 0')
   })
 })

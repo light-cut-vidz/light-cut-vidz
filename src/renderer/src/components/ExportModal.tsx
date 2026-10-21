@@ -13,7 +13,7 @@ interface Props {
 type Format = 'mp4' | 'mov' | 'webm' | 'avi' | 'gif'
 
 export default function ExportModal({ state, onClose }: Props) {
-  const { t } = useT()
+  const { t, lang } = useT()
   const [format, setFormat] = useState<Format>('mp4')
   const [progress, setProgress] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -30,29 +30,36 @@ export default function ExportModal({ state, onClose }: Props) {
 
   const keptSegments = getKeptSegments(state.cutSegments, state.duration)
 
-  const keptDuration = keptSegments.reduce((acc, s) => acc + (s.end - s.start), 0)
+  // The exported clip plays the kept parts at `speed`, so it is shorter (or
+  // longer) than the sum of the kept parts.
+  const keptDuration = keptSegments.reduce((acc, s) => acc + (s.end - s.start), 0) / state.speed
+  const exporting = progress !== null && !done
+  const nothingToExport = keptSegments.length === 0
 
   useEffect(() => {
     const off = window.electronAPI.onProgress((p: number) => setProgress(p))
     return off
   }, [])
 
+  // Closing mid-export would leave it running with no way to see or stop it.
+  const requestClose = () => { if (!exporting) onClose() }
+
   const handleExport = async () => {
     setError(null)
     setDone(false)
 
-    const baseName = state.videoPath
-      ? state.videoPath.split('/').pop()?.replace(/\.[^.]+$/, '') || 'output'
-      : 'output'
+    if (!state.videoPath || nothingToExport) return
 
-    const savePath = await window.electronAPI.saveVideo(`${baseName}_edit.${format}`)
+    const baseName = state.videoPath.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, '') || 'output'
+
+    const savePath = await window.electronAPI.saveVideo(`${baseName}_edit.${format}`, format)
     if (!savePath) return
 
     setProgress(0)
 
     try {
       const result = await window.electronAPI.exportVideo({
-        inputPath: state.videoPath!,
+        inputPath: state.videoPath,
         outputPath: savePath,
         segments: keptSegments,
         speed: state.speed,
@@ -64,7 +71,6 @@ export default function ExportModal({ state, onClose }: Props) {
         perspectiveV: state.perspectiveVertical,
         muted: state.muted,
         format,
-        duration: state.duration,
         subtitles: state.subtitles
           ? { cues: state.subtitles.cues, style: state.subtitles.style, animation: state.subtitles.animation }
           : null,
@@ -72,20 +78,22 @@ export default function ExportModal({ state, onClose }: Props) {
       setDone(true)
       setOutputPath(result.outputPath)
     } catch (err: unknown) {
-      setError(String(err))
+      const message = err instanceof Error ? err.message : String(err)
+      // The user pressed "Stop export": not a failure worth an error banner.
+      setError(/cancelled/i.test(message) ? t.export_cancelled : message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
       setProgress(null)
     }
   }
 
   const activeFilter = getFilterById(state.filter)
-  const filterName = useT().lang === 'fr' ? activeFilter.nameFr : activeFilter.nameEn
+  const filterName = lang === 'fr' ? activeFilter.nameFr : activeFilter.nameEn
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onClick={requestClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{t.export_title}</h2>
-          <button className="modal-close" onClick={onClose}>×</button>
+          <button className="modal-close" onClick={requestClose} disabled={exporting}>×</button>
         </div>
 
         {/* Summary */}
@@ -141,7 +149,7 @@ export default function ExportModal({ state, onClose }: Props) {
               key={f.id}
               className={`format-card ${format === f.id ? 'selected' : ''}`}
               onClick={() => setFormat(f.id)}
-              disabled={progress !== null && !done}
+              disabled={exporting}
             >
               <div className="format-name">{f.label}</div>
               <div className="format-desc">{f.desc}</div>
@@ -165,17 +173,23 @@ export default function ExportModal({ state, onClose }: Props) {
           </div>
         )}
 
+        {nothingToExport && <div className="export-error">{t.export_nothing}</div>}
+
         {error && (
           <div className="export-error">{t.export_error}: {error}</div>
         )}
 
         {/* Actions */}
         <div className="modal-actions">
-          <button className="btn-ghost" onClick={onClose}>{t.export_cancel}</button>
+          {exporting ? (
+            <button className="btn-ghost" onClick={() => { void window.electronAPI.cancelFfmpeg() }}>{t.export_stop}</button>
+          ) : (
+            <button className="btn-ghost" onClick={onClose}>{t.export_cancel}</button>
+          )}
           <button
             className="btn-primary"
             onClick={handleExport}
-            disabled={progress !== null && !done}
+            disabled={exporting || nothingToExport}
           >
             {done ? t.export_again : t.export_btn}
           </button>

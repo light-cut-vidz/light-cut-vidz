@@ -512,3 +512,128 @@ describe('Timeline — vidéo sans durée', () => {
     expect((container.querySelector('.tl-playhead') as HTMLElement).style.left).toBe('0%')
   })
 })
+// ─── Fixes: preview of the drawn zone, tiny cuts, keyboard, cancellation ─────
+
+import { rulerStep } from '../components/Timeline'
+
+describe('Timeline — drawing a new cut', () => {
+  it('shows the zone while the pointer is still down', () => {
+    const { container } = r(makeProps())
+    const track = trackOf(container)
+    fireEvent.pointerDown(track, { clientX: 100, pointerId: 1 })
+    fireEvent.pointerMove(track, { clientX: 300, pointerId: 1 })
+    const draft = container.querySelector('.tl-cut-draft') as HTMLElement
+    expect(draft).toBeTruthy()
+    expect(draft.style.left).toBe('10%')
+    expect(draft.style.width).toBe('20%')
+  })
+
+  it('removes the preview on release and commits the real cut', () => {
+    const onCutSegmentsChange = vi.fn()
+    const { container } = r(makeProps({ onCutSegmentsChange }))
+    const track = trackOf(container)
+    fireEvent.pointerDown(track, { clientX: 100, pointerId: 1 })
+    fireEvent.pointerMove(track, { clientX: 300, pointerId: 1 })
+    fireEvent.pointerUp(track, { clientX: 300, pointerId: 1 })
+    expect(container.querySelector('.tl-cut-draft')).toBeNull()
+    expect(onCutSegmentsChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops the preview when the pointer is cancelled, without cutting anything', () => {
+    const onCutSegmentsChange = vi.fn()
+    const { container } = r(makeProps({ onCutSegmentsChange }))
+    const track = trackOf(container)
+    fireEvent.pointerDown(track, { clientX: 100, pointerId: 1 })
+    fireEvent.pointerMove(track, { clientX: 300, pointerId: 1 })
+    fireEvent.pointerCancel(track, { pointerId: 1 })
+    expect(container.querySelector('.tl-cut-draft')).toBeNull()
+    expect(onCutSegmentsChange).not.toHaveBeenCalled()
+  })
+})
+
+describe('Timeline — closing gestures', () => {
+  // Otherwise the next, unrelated edit is folded into the interrupted drag.
+  it('closes a move gesture when the pointer is cancelled', () => {
+    const onCommit = vi.fn()
+    const { container } = r(makeProps({ cutSegments: [{ id: 'a', start: 10, end: 30 }], onCommit }))
+    const track = trackOf(container)
+    fireEvent.pointerDown(track, { clientX: 200, pointerId: 1 })
+    fireEvent.pointerMove(track, { clientX: 220, pointerId: 1 })
+    fireEvent.pointerCancel(track, { pointerId: 1 })
+    expect(onCommit).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Timeline — very narrow cuts', () => {
+  // 1% of a 1000px track is 10px: narrower than two 8px resize handles, so it
+  // used to have no "middle" to grab.
+  const tiny = [{ id: 't', start: 50, end: 51 }]
+
+  it('moves a narrow cut when pressed inside it', () => {
+    const onCutSegmentsChangeLive = vi.fn()
+    const { container } = r(makeProps({ cutSegments: tiny, onCutSegmentsChangeLive }))
+    const track = trackOf(container)
+    fireEvent.pointerDown(track, { clientX: 505, pointerId: 1 })
+    fireEvent.pointerMove(track, { clientX: 605, pointerId: 1 })
+    const [segs] = onCutSegmentsChangeLive.mock.calls[0]
+    expect(segs[0].start).toBeCloseTo(60, 0)
+    expect(segs[0].end - segs[0].start).toBeCloseTo(1, 5)
+  })
+})
+
+describe('Timeline — keyboard and typed times', () => {
+  it('Delete removes the selected cut', () => {
+    const onCutSegmentsChange = vi.fn()
+    const { container } = r(makeProps({ cutSegments: [{ id: 'a', start: 10, end: 30 }], onCutSegmentsChange }))
+    fireEvent.click(container.querySelector('.tl-cut')!)
+    fireEvent.keyDown(window, { key: 'Delete' })
+    expect(onCutSegmentsChange).toHaveBeenCalledWith([])
+  })
+
+  it('does nothing on Delete when no cut is selected', () => {
+    const onCutSegmentsChange = vi.fn()
+    r(makeProps({ cutSegments: [{ id: 'a', start: 10, end: 30 }], onCutSegmentsChange }))
+    fireEvent.keyDown(window, { key: 'Delete' })
+    expect(onCutSegmentsChange).not.toHaveBeenCalled()
+  })
+
+  it('leaves Backspace alone while a time field has focus', () => {
+    const onCutSegmentsChange = vi.fn()
+    const { container } = r(makeProps({ cutSegments: [{ id: 'a', start: 10, end: 30 }], onCutSegmentsChange }))
+    fireEvent.click(container.querySelector('.tl-cut')!)
+    const input = container.querySelector('.cut-editor-input') as HTMLInputElement
+    fireEvent.keyDown(input, { key: 'Backspace' })
+    expect(onCutSegmentsChange).not.toHaveBeenCalled()
+  })
+
+  it('merges a cut whose typed time makes it overlap another', () => {
+    const onCutSegmentsChange = vi.fn()
+    const cuts = [{ id: 'a', start: 10, end: 20 }, { id: 'b', start: 40, end: 50 }]
+    const { container } = r(makeProps({ cutSegments: cuts, onCutSegmentsChange }))
+    fireEvent.click(container.querySelectorAll('.tl-cut')[0])
+    const [, endInput] = container.querySelectorAll('.cut-editor-input')
+    fireEvent.focus(endInput)
+    fireEvent.change(endInput, { target: { value: '0:45.0' } })
+    fireEvent.blur(endInput)
+    const [merged] = onCutSegmentsChange.mock.calls[0]
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toMatchObject({ start: 10, end: 50 })
+  })
+})
+
+describe('rulerStep', () => {
+  it('uses fine steps for short videos', () => {
+    expect(rulerStep(20)).toBe(1)
+  })
+
+  it('never produces more than ~15 labelled ticks, however long the video', () => {
+    for (const duration of [30, 120, 600, 3600, 3 * 3600, 10 * 3600]) {
+      const labels = Math.floor(duration / (rulerStep(duration) * 5)) + 1
+      expect(labels, `${duration}s`).toBeLessThanOrEqual(15)
+    }
+  })
+
+  it('grows with the duration', () => {
+    expect(rulerStep(3 * 3600)).toBeGreaterThan(rulerStep(600))
+  })
+})

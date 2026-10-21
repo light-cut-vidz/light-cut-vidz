@@ -1,7 +1,7 @@
 const { BrowserWindow } = require('electron')
 const { escapeHtml } = require('./escapeHtml')
 
-function aboutHtml(title, message) {
+function aboutHtml(title, message, note) {
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -22,6 +22,7 @@ function aboutHtml(title, message) {
   }
   h1 { font-size: 18px; font-weight: 600; }
   p  { font-size: 13px; color: #999; }
+  p.note { font-size: 11px; color: #777; max-width: 300px; line-height: 1.4; }
   button {
     margin-top: 14px;
     padding: 8px 28px;
@@ -39,15 +40,16 @@ function aboutHtml(title, message) {
 <body>
   <h1>${escapeHtml(title)}</h1>
   <p>${escapeHtml(message)}</p>
+  ${note ? `<p class="note">${escapeHtml(note)}</p>` : ''}
   <button onclick="window.close()">OK</button>
 </body>
 </html>`
 }
 
-function showAboutWindow({ parent, title, message }) {
+function showAboutWindow({ parent, title, message, note }) {
   const win = new BrowserWindow({
     width: 360,
-    height: 200,
+    height: 250,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -63,7 +65,7 @@ function showAboutWindow({ parent, title, message }) {
     },
   })
 
-  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(aboutHtml(title, message))}`)
+  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(aboutHtml(title, message, note))}`)
   win.setMenuBarVisibility(false)
   return win
 }

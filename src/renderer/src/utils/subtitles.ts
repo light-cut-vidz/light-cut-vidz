@@ -5,8 +5,9 @@
 // src/main/lib/subtitles.js — keep both in sync.
 import type { SubtitleCue } from './srt'
 
-// Duplicated in src/main/lib/subtitles.js — keep both palettes in sync.
-export const RAINBOW_PALETTE = ['#FF3B5C', '#FFB800', '#00E5A0', '#00B4FF', '#B14EFF', '#FF6EC7']
+import constants from '../../../shared/constants.json'
+
+export const RAINBOW_PALETTE: string[] = constants.rainbowPalette
 
 export interface TimedWord { start: number; end: number; text: string }
 export interface TimedText { start: number; end: number; text: string }
@@ -49,6 +50,11 @@ export function getCharWindows(cue: SubtitleCue): TimedText[] {
 
   out[out.length - 1].end = cue.end
   return out
+}
+
+/** Every cue showing at `time` (SRT files may overlap them). */
+export function getActiveCues(cues: SubtitleCue[], time: number): SubtitleCue[] {
+  return cues.filter(c => time >= c.start && time < c.end)
 }
 
 export function getActiveCue(cues: SubtitleCue[], time: number): SubtitleCue | null {

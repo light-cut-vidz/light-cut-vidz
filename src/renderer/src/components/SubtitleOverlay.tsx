@@ -1,15 +1,17 @@
-import React, { useEffect, useState, useCallback } from 'react'
-import type { SubtitlesState } from '../App'
-import { getActiveCue, getWordWindows, getActiveWordIndex, getActiveCharCount, RAINBOW_PALETTE } from '../utils/subtitles'
+import React, { useEffect, useState } from 'react'
+import type { SubtitlesState, CropRect } from '../App'
+import type { SubtitleCue } from '../utils/srt'
+import { getActiveCues, getWordWindows, getActiveWordIndex, getActiveCharCount, RAINBOW_PALETTE } from '../utils/subtitles'
+import { useVideoRect } from '../hooks/useVideoRect'
 import './SubtitleOverlay.css'
 
 interface Props {
   videoRef: React.RefObject<HTMLVideoElement | null>
   subtitles: SubtitlesState | null
   currentTime: number
+  /** The crop that will be exported: subtitles are laid out on the cropped picture. */
+  crop?: CropRect | null
 }
-
-interface DisplayRect { left: number; top: number; width: number; height: number }
 
 const POSITION_JUSTIFY: Record<string, string> = {
   top: 'flex-start',
@@ -26,39 +28,57 @@ function renderMultiline(text: string) {
   ))
 }
 
-export default function SubtitleOverlay({ videoRef, subtitles, currentTime }: Props) {
-  const [rect, setRect] = useState<DisplayRect | null>(null)
+export default function SubtitleOverlay({ videoRef, subtitles, currentTime, crop }: Props) {
+  const pictureRect = useVideoRect(videoRef)
 
-  const compute = useCallback(() => {
-    const video = videoRef.current
-    if (!video || !video.videoWidth) return
-    const vr = video.getBoundingClientRect()
-    const pw = video.parentElement?.getBoundingClientRect()
-    if (!pw) return
-    setRect({ left: vr.left - pw.left, top: vr.top - pw.top, width: vr.width, height: vr.height })
-  }, [videoRef])
-
+  // `timeupdate` only fires about four times a second, far too coarse for
+  // word-by-word animation. While the video plays, follow its clock per frame;
+  // otherwise (paused, seeking) the prop is exact.
+  const [liveTime, setLiveTime] = useState<number | null>(null)
+  const active = !!subtitles
   useEffect(() => {
-    compute()
     const video = videoRef.current
-    // `compute` bails out until the video reports its intrinsic size, so it has
-    // to run again once metadata lands — otherwise captions imported before the
-    // video is ready stay invisible until the window is resized.
-    video?.addEventListener('loadedmetadata', compute)
-    const ro = video ? new ResizeObserver(compute) : null
-    if (video) ro!.observe(video)
-    window.addEventListener('resize', compute)
-    return () => {
-      video?.removeEventListener('loadedmetadata', compute)
-      ro?.disconnect()
-      window.removeEventListener('resize', compute)
+    if (!video || !active) return
+    let raf = 0
+    const tick = () => {
+      setLiveTime(video.currentTime)
+      raf = requestAnimationFrame(tick)
     }
-  }, [compute, subtitles, videoRef])
+    const start = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(tick) }
+    const stop = () => { cancelAnimationFrame(raf); setLiveTime(null) }
+    if (!video.paused && !video.ended) start()
+    video.addEventListener('play', start)
+    video.addEventListener('pause', stop)
+    video.addEventListener('ended', stop)
+    return () => {
+      cancelAnimationFrame(raf)
+      video.removeEventListener('play', start)
+      video.removeEventListener('pause', stop)
+      video.removeEventListener('ended', stop)
+    }
+  }, [videoRef, active])
+  const time = liveTime ?? currentTime
 
-  if (!subtitles || !rect) return null
+  if (!subtitles || !pictureRect) return null
 
-  const cue = getActiveCue(subtitles.cues, currentTime)
-  if (!cue) return null
+  const activeCues = getActiveCues(subtitles.cues, time)
+  if (activeCues.length === 0) return null
+
+  // The export burns subtitles into the *cropped* frame, so lay them out there.
+  const pxPerSource = pictureRect.naturalWidth > 0 ? pictureRect.width / pictureRect.naturalWidth : 1
+  const rect = crop
+    ? {
+        left: pictureRect.left + crop.x * pxPerSource,
+        top: pictureRect.top + crop.y * pxPerSource,
+        width: crop.w * pxPerSource,
+        height: crop.h * pxPerSource,
+      }
+    : pictureRect
+  // ASS outlines are in output pixels; scale to what is on screen. A CSS stroke is
+  // centred on the glyph edge (half hidden under the fill), an ASS outline lies
+  // wholly outside it, hence the factor 2.
+  const outputHeight = crop ? crop.h : pictureRect.naturalHeight || rect.height
+  const strokePx = 2 * subtitles.style.outlineWidth * (rect.height / outputHeight)
 
   const { style, animation } = subtitles
   const fontSize = (style.fontSize / 100) * rect.height
@@ -69,7 +89,7 @@ export default function SubtitleOverlay({ videoRef, subtitles, currentTime }: Pr
     fontSize: `${fontSize}px`,
     color: style.color,
     fontWeight: 700,
-    WebkitTextStrokeWidth: style.outlineWidth,
+    WebkitTextStrokeWidth: strokePx,
     WebkitTextStrokeColor: style.outlineColor,
     paintOrder: 'stroke fill',
     backgroundColor: style.backgroundOpacity > 0 ? hexToRgba(style.backgroundColor, style.backgroundOpacity) : 'transparent',
@@ -77,62 +97,66 @@ export default function SubtitleOverlay({ videoRef, subtitles, currentTime }: Pr
     borderRadius: style.backgroundOpacity > 0 ? '0.2em' : 0,
   }
 
-  let content: React.ReactNode = null
+  const renderCue = (cue: SubtitleCue): React.ReactNode => {
+    let content: React.ReactNode = null
 
-  if (animation === 'word-pop') {
-    const idx = getActiveWordIndex(cue, currentTime)
-    const words = getWordWindows(cue)
-    const word = words[idx]?.text
-    if (word) {
+    if (animation === 'word-pop') {
+      const idx = getActiveWordIndex(cue, time)
+      const words = getWordWindows(cue)
+      const word = words[idx]?.text
+      if (word) {
+        content = (
+          <span key={`${cue.id}-${idx}`} className="sub-word-pop" style={textStyle}>{word}</span>
+        )
+      }
+    } else if (animation === 'word-bounce') {
+      const idx = getActiveWordIndex(cue, time)
+      const words = getWordWindows(cue)
+      const word = words[idx]?.text
+      if (word) {
+        content = (
+          <span key={`${cue.id}-${idx}`} className="sub-word-bounce" style={textStyle}>{word}</span>
+        )
+      }
+    } else if (animation === 'rainbow') {
+      const words = getWordWindows(cue)
       content = (
-        <span key={`${cue.id}-${idx}`} className="sub-word-pop" style={textStyle}>{word}</span>
+        <span key={cue.id} className="sub-sentence-fade" style={textStyle}>
+          {words.map((w, i) => (
+            <span key={i} style={{ color: RAINBOW_PALETTE[i % RAINBOW_PALETTE.length] }}>
+              {w.text}{i < words.length - 1 ? ' ' : ''}
+            </span>
+          ))}
+        </span>
+      )
+    } else if (animation === 'typewriter') {
+      const count = getActiveCharCount(cue, time)
+      const text = Array.from(cue.text).slice(0, count).join('')
+      content = <span className="sub-typewriter" style={textStyle}>{renderMultiline(text)}</span>
+    } else if (animation === 'word-highlight') {
+      const words = getWordWindows(cue)
+      const idx = getActiveWordIndex(cue, time)
+      content = (
+        <span className="sub-highlight-line" style={textStyle}>
+          {words.map((w, i) => (
+            <span key={i} style={i === idx ? { color: style.accentColor } : undefined}>
+              {w.text}{i < words.length - 1 ? ' ' : ''}
+            </span>
+          ))}
+        </span>
+      )
+    } else if (animation === 'sentence-slide') {
+      content = (
+        <span key={cue.id} className="sub-sentence-slide" style={textStyle}>{renderMultiline(cue.text)}</span>
+      )
+    } else {
+      // sentence-fade (default fallback)
+      content = (
+        <span key={cue.id} className="sub-sentence-fade" style={textStyle}>{renderMultiline(cue.text)}</span>
       )
     }
-  } else if (animation === 'word-bounce') {
-    const idx = getActiveWordIndex(cue, currentTime)
-    const words = getWordWindows(cue)
-    const word = words[idx]?.text
-    if (word) {
-      content = (
-        <span key={`${cue.id}-${idx}`} className="sub-word-bounce" style={textStyle}>{word}</span>
-      )
-    }
-  } else if (animation === 'rainbow') {
-    const words = getWordWindows(cue)
-    content = (
-      <span key={cue.id} className="sub-sentence-fade" style={textStyle}>
-        {words.map((w, i) => (
-          <span key={i} style={{ color: RAINBOW_PALETTE[i % RAINBOW_PALETTE.length] }}>
-            {w.text}{i < words.length - 1 ? ' ' : ''}
-          </span>
-        ))}
-      </span>
-    )
-  } else if (animation === 'typewriter') {
-    const count = getActiveCharCount(cue, currentTime)
-    const text = Array.from(cue.text).slice(0, count).join('')
-    content = <span className="sub-typewriter" style={textStyle}>{renderMultiline(text)}</span>
-  } else if (animation === 'word-highlight') {
-    const words = getWordWindows(cue)
-    const idx = getActiveWordIndex(cue, currentTime)
-    content = (
-      <span className="sub-highlight-line" style={textStyle}>
-        {words.map((w, i) => (
-          <span key={i} style={i === idx ? { color: style.accentColor } : undefined}>
-            {w.text}{i < words.length - 1 ? ' ' : ''}
-          </span>
-        ))}
-      </span>
-    )
-  } else if (animation === 'sentence-slide') {
-    content = (
-      <span key={cue.id} className="sub-sentence-slide" style={textStyle}>{renderMultiline(cue.text)}</span>
-    )
-  } else {
-    // sentence-fade (default fallback)
-    content = (
-      <span key={cue.id} className="sub-sentence-fade" style={textStyle}>{renderMultiline(cue.text)}</span>
-    )
+
+    return content
   }
 
   return (
@@ -147,7 +171,7 @@ export default function SubtitleOverlay({ videoRef, subtitles, currentTime }: Pr
         padding: `${marginV}px 24px`,
       }}
     >
-      {content}
+      {activeCues.map(cue => <React.Fragment key={cue.id}>{renderCue(cue)}</React.Fragment>)}
     </div>
   )
 }

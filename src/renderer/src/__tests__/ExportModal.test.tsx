@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, fireEvent, screen, waitFor } from '@testing-library/react'
+import { render, fireEvent, screen, waitFor, act } from '@testing-library/react'
 import React from 'react'
 import ExportModal from '../components/ExportModal'
 import { LangProvider } from '../i18n'
@@ -152,5 +152,117 @@ describe('ExportModal', () => {
     fireEvent.click(screen.getByRole('button', { name: /^export(er)?$/i }))
     await new Promise(resolve => setTimeout(resolve, 10))
     expect(exportVideo).not.toHaveBeenCalled()
+  })
+})
+
+describe('ExportModal — fixes', () => {
+  beforeEach(() => {
+    window.electronAPI = {
+      ...window.electronAPI,
+      onProgress: () => () => {},
+      saveVideo: vi.fn().mockResolvedValue('/tmp/out.mp4'),
+      cancelFfmpeg: vi.fn().mockResolvedValue(undefined),
+      exportVideo: vi.fn().mockResolvedValue({ success: true, outputPath: '/tmp/out.mp4' }),
+    }
+  })
+
+  const exportBtn = () => screen.getByRole('button', { name: /^export(er)?$/i })
+
+  it('asks for a file name with the chosen format, so the dialog filters on it', async () => {
+    r()
+    fireEvent.click(Array.from(document.querySelectorAll('.format-card')).find(c => c.textContent?.includes('WebM'))!)
+    fireEvent.click(exportBtn())
+    await waitFor(() => expect(window.electronAPI.saveVideo).toHaveBeenCalledWith('clip_edit.webm', 'webm'))
+  })
+
+  it('derives the suggested name from a Windows-style path too', async () => {
+    r({ videoPath: 'C:\\Users\\me\\Videos\\holiday.mov' })
+    fireEvent.click(exportBtn())
+    await waitFor(() => expect(window.electronAPI.saveVideo).toHaveBeenCalledWith('holiday_edit.mp4', 'mp4'))
+  })
+
+  it('no longer sends a duration the main process ignores', async () => {
+    r()
+    fireEvent.click(exportBtn())
+    await waitFor(() => expect(window.electronAPI.exportVideo).toHaveBeenCalled())
+    expect(vi.mocked(window.electronAPI.exportVideo).mock.calls[0][0]).not.toHaveProperty('duration')
+  })
+
+  // The exported clip plays the kept parts at `speed`.
+  it('shows the real output duration at 2x speed', () => {
+    const { container } = r({ duration: 60, speed: 2 })
+    expect(container.querySelector('.summary-value')?.textContent).toBe('0:30')
+  })
+
+  describe('when every part is cut', () => {
+    const allCut = { cutSegments: [{ id: 'a', start: 0, end: 100 }] }
+
+    it('explains why there is nothing to export and disables the button', () => {
+      const { container } = r(allCut)
+      expect(container.querySelector('.export-error')).toBeTruthy()
+      expect(exportBtn()).toBeDisabled()
+    })
+
+    it('never opens the save dialog', () => {
+      r(allCut)
+      fireEvent.click(exportBtn())
+      expect(window.electronAPI.saveVideo).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('while an export runs', () => {
+    let finish: (() => void) | null = null
+    let reject: ((e: Error) => void) | null = null
+    beforeEach(() => {
+      window.electronAPI.exportVideo = vi.fn(() => new Promise<{ success: boolean; outputPath: string }>((res, rej) => {
+        finish = () => res({ success: true, outputPath: '/tmp/out.mp4' })
+        reject = rej
+      }))
+    })
+
+    async function running(onClose = vi.fn()) {
+      const view = r({}, onClose)
+      fireEvent.click(exportBtn())
+      await waitFor(() => expect(window.electronAPI.exportVideo).toHaveBeenCalled())
+      return { ...view, onClose }
+    }
+
+    it('offers to stop it instead of closing, and stops ffmpeg', async () => {
+      await running()
+      fireEvent.click(screen.getByRole('button', { name: /stop export|arrêter/i }))
+      expect(window.electronAPI.cancelFfmpeg).toHaveBeenCalled()
+    })
+
+    it('ignores the backdrop and the × so the export cannot be orphaned', async () => {
+      const { container, onClose } = await running()
+      fireEvent.click(container.querySelector('.modal-backdrop')!)
+      fireEvent.click(container.querySelector('.modal-close')!)
+      expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('locks the format picker', async () => {
+      const { container } = await running()
+      expect(container.querySelector('.format-card')).toBeDisabled()
+    })
+
+    it('reports a user cancellation as such, not as an error dump', async () => {
+      const { container } = await running()
+      await act(async () => { reject!(new Error("Error invoking remote method 'ffmpeg:export': Error: cancelled")) })
+      expect(container.querySelector('.export-error')?.textContent).toMatch(/cancelled|annulé/i)
+      expect(container.querySelector('.export-error')?.textContent).not.toMatch(/invoking/)
+    })
+
+    it('strips the Electron IPC prefix from a real failure', async () => {
+      const { container } = await running()
+      await act(async () => { reject!(new Error("Error invoking remote method 'ffmpeg:export': Error: Invalid argument")) })
+      expect(container.querySelector('.export-error')?.textContent).toContain('Invalid argument')
+      expect(container.querySelector('.export-error')?.textContent).not.toMatch(/invoking/)
+    })
+
+    it('shows the success state when it finishes', async () => {
+      const { container } = await running()
+      await act(async () => { finish!() })
+      expect(container.querySelector('.export-done')?.textContent).toContain('/tmp/out.mp4')
+    })
   })
 })

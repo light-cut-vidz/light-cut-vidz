@@ -9,8 +9,12 @@ function makeVideo(width = 1920, height = 1080, displayWidth = 960) {
   const video = document.createElement('video') as HTMLVideoElement
   Object.defineProperty(video, 'videoWidth', { value: width, configurable: true })
   Object.defineProperty(video, 'videoHeight', { value: height, configurable: true })
-  video.getBoundingClientRect = () =>
-    ({ left: 0, top: 0, right: displayWidth, bottom: displayWidth * (height / width), width: displayWidth, height: displayWidth * (height / width), x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+  // Layout metrics, not getBoundingClientRect: the latter is the bounding box of
+  // the transformed element and is wrong as soon as a rotation is applied.
+  const displayHeight = displayWidth * (height / width)
+  for (const [key, value] of Object.entries({ offsetLeft: 0, offsetTop: 0, offsetWidth: displayWidth, offsetHeight: displayHeight })) {
+    Object.defineProperty(video, key, { value, configurable: true })
+  }
   return video
 }
 
@@ -242,12 +246,17 @@ describe('CropOverlay — poignées de coin', () => {
 })
 
 describe('CropOverlay — cadrage initial', () => {
-  it('couvre toute l’image quand aucun recadrage n’existe encore', () => {
+  // Opening the panel must not record a crop: it would be exported (and trip a
+  // rotation) even if the user never touched it.
+  it('montre toute l’image sans enregistrer de recadrage', () => {
     const onChange = vi.fn()
+    const onChangeLive = vi.fn()
 
-    render(<LangProvider><Harness onChange={onChange} /></LangProvider>)
+    const { container } = render(<LangProvider><Harness onChange={onChange} onChangeLive={onChangeLive} /></LangProvider>)
 
-    expect(onChange).toHaveBeenCalledWith({ x: 0, y: 0, w: 1920, h: 1080 })
+    expect(container.querySelector('.crop-dimensions')?.textContent).toBe('1920 × 1080')
+    expect(onChange).not.toHaveBeenCalled()
+    expect(onChangeLive).not.toHaveBeenCalled()
   })
 
   it('respecte un recadrage déjà posé', () => {

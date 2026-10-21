@@ -1,8 +1,8 @@
 const { Menu, BrowserWindow, dialog } = require('electron')
 
-const VIDEO_EXTENSIONS = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'm4v']
+const { videoExtensions: VIDEO_EXTENSIONS } = require('../../shared/constants.json')
 
-function buildMenuTemplate({ t, currentLang, onOpenVideo, onUndo, onRedo, onFullscreenEntered, onAbout, onCheckUpdates, onSwitchLanguage }) {
+function buildMenuTemplate({ t, currentLang, onOpenVideo, onSaveProject, onOpenProject, onUndo, onRedo, onFullscreenEntered, onAbout, onCheckUpdates, onShowChangelog, onSwitchLanguage }) {
   const isMac = process.platform === 'darwin'
 
   return [
@@ -30,12 +30,15 @@ function buildMenuTemplate({ t, currentLang, onOpenVideo, onUndo, onRedo, onFull
             const win = BrowserWindow.getFocusedWindow()
             if (!win) return
             const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-              filters: [{ name: 'Videos', extensions: VIDEO_EXTENSIONS }],
+              filters: [{ name: t('filter_videos'), extensions: VIDEO_EXTENSIONS }],
               properties: ['openFile'],
             })
             if (!canceled && filePaths[0]) onOpenVideo(win, filePaths[0])
           },
         },
+        { type: 'separator' },
+        { label: t('menu_save_project'), accelerator: 'CmdOrCtrl+S', click: () => onSaveProject && onSaveProject(BrowserWindow.getFocusedWindow()) },
+        { label: t('menu_open_project'), accelerator: 'CmdOrCtrl+Shift+O', click: () => onOpenProject && onOpenProject(BrowserWindow.getFocusedWindow()) },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },
       ],
@@ -57,6 +60,14 @@ function buildMenuTemplate({ t, currentLang, onOpenVideo, onUndo, onRedo, onFull
           enabled: false,
           click: () => onRedo(BrowserWindow.getFocusedWindow()),
         },
+        // Without these, Cmd+C / Cmd+V / Cmd+A do nothing in text fields on macOS.
+        ...(isMac ? [
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'selectAll' },
+        ] : []),
       ],
     },
     {
@@ -79,6 +90,7 @@ function buildMenuTemplate({ t, currentLang, onOpenVideo, onUndo, onRedo, onFull
       label: t('menu_help'),
       submenu: [
         { label: t('menu_about'), click: onAbout },
+        { label: t('menu_whats_new'), click: () => onShowChangelog && onShowChangelog(BrowserWindow.getFocusedWindow()) },
         { type: 'separator' },
         { label: t('menu_check_updates'), click: () => onCheckUpdates(true) },
         { type: 'separator' },
@@ -95,7 +107,7 @@ function buildMenuTemplate({ t, currentLang, onOpenVideo, onUndo, onRedo, onFull
 }
 
 function buildMenu(opts) {
-  Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenuTemplate(opts)))
+  Menu.setApplicationMenu(Menu.buildFromTemplate(/** @type {any} */ (buildMenuTemplate(opts))))
 }
 
 function setUndoRedoEnabled(canUndo, canRedo) {

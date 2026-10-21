@@ -70,8 +70,8 @@ function assColor(hex, alpha01 = 1) {
   return `&H${aa}${b.toUpperCase()}${g.toUpperCase()}${r.toUpperCase()}`
 }
 
-// Duplicated in src/renderer/src/utils/subtitles.ts — keep both palettes in sync.
-const RAINBOW_PALETTE = ['#FF3B5C', '#FFB800', '#00E5A0', '#00B4FF', '#B14EFF', '#FF6EC7']
+// Shared with the preview (src/shared/constants.json).
+const { rainbowPalette: RAINBOW_PALETTE } = require('../../shared/constants.json')
 
 function slideCoords(videoWidth, videoHeight, position) {
   const x = Math.round(videoWidth / 2)
@@ -156,6 +156,18 @@ function expandCuesToEvents(cues, animation, opts = {}) {
  * generalization of utils/time.ts's realToVirtual() from a point to a range —
  * an event straddling a cut boundary is naturally split into sub-events.
  */
+// Intro animations (fade, slide, pop-in scale) belong to the moment a cue first
+// appears. The part of a cue that survives *after* a cut is a continuation: it
+// must not fade or slide in again.
+function stripIntroAnimation(text) {
+  return text
+    .replace(/\\fad\([^)]*\)/g, '')
+    .replace(/\\move\([^)]*\)/g, '')
+    .replace(/\\t\([^)]*\)/g, '')
+    .replace(/\\fscx60\\fscy60|\\fscx135\\fscy135/g, '')
+    .replace(/\{\}/g, '')
+}
+
 function remapEventsToKeptSegments(events, kept) {
   const out = []
   for (const ev of events) {
@@ -166,6 +178,7 @@ function remapEventsToKeptSegments(events, kept) {
       if (clipEnd > clipStart) {
         out.push({
           ...ev,
+          text: clipStart > ev.start ? stripIntroAnimation(ev.text) : ev.text,
           start: virtualOffset + (clipStart - seg.start),
           end: virtualOffset + (clipEnd - seg.start),
         })
@@ -198,7 +211,10 @@ function buildAssContent(events, style, videoWidth, videoHeight) {
   const fontSizePx = Math.max(8, Math.round((fontSize / 100) * videoHeight))
   const alignment = ALIGNMENT[position] || ALIGNMENT.bottom
   const marginV = Math.round(videoHeight * 0.06)
-  const borderStyle = backgroundOpacity > 0 ? 3 : 1 // 3 = opaque box, 1 = outline+shadow only
+  // 4 = box painted with BackColour (libass extension) and the text keeps its
+  // outline. 3, the "official" opaque box, paints it with OutlineColour instead,
+  // which silently ignores the chosen background colour and opacity.
+  const borderStyle = backgroundOpacity > 0 ? 4 : 1
   const primaryColour = assColor(color, 1)
   const secondaryColour = assColor(color, 1)
   const outlineColour = assColor(outlineColor, 1)
@@ -218,19 +234,26 @@ Style: Default,${fontFamily},${fontSizePx},${primaryColour},${secondaryColour},$
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `
 
+  // ASS times have a resolution of 10 ms: an event shorter than that (a
+  // typewriter step on a fast cue) rounds to zero length and is never drawn.
   const lines = events
+    .filter(ev => toAssTime(ev.start) !== toAssTime(ev.end))
     .map(ev => `Dialogue: 0,${toAssTime(ev.start)},${toAssTime(ev.end)},Default,,0,0,0,,${ev.text}`)
     .join('\n')
 
   return header + lines + '\n'
 }
 
+// Two escaping layers: the option value (`\`, `:`, `'`), then the filtergraph
+// that carries it (`\`, `'`, `,`, `;`, brackets, spaces). Quoting would not do:
+// inside '…' a backslash cannot escape an apostrophe.
 function escapeForFfmpegFilter(p) {
-  return p.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'")
+  const option = p.replace(/[\\':]/g, m => `\\${m}`)
+  return option.replace(/[\\',;[\] ]/g, m => `\\${m}`)
 }
 
 function buildSubtitlesFilter(assPath) {
-  return `subtitles='${escapeForFfmpegFilter(assPath)}'`
+  return `subtitles=${escapeForFfmpegFilter(assPath)}`
 }
 
 module.exports = {

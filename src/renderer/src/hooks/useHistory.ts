@@ -27,10 +27,20 @@ export const defaultEditable: EditableState = {
   subtitles: null,
 }
 
+// Bounds memory on very long sessions; older steps fall off the undo stack.
+const MAX_HISTORY = 200
+
+const pushPast = (past: EditableState[], entry: EditableState) => [...past, entry].slice(-MAX_HISTORY)
+
 interface History {
   past: EditableState[]
   current: EditableState
   future: EditableState[]
+}
+
+function shallowEqual(a: EditableState, b: EditableState): boolean {
+  const keys = Object.keys(a) as (keyof EditableState)[]
+  return keys.every(k => a[k] === b[k])
 }
 
 export function useEditorHistory(initial: EditableState = defaultEditable) {
@@ -44,7 +54,13 @@ export function useEditorHistory(initial: EditableState = defaultEditable) {
 
   const set = useCallback((updater: (prev: EditableState) => EditableState) => {
     inGesture.current = false
-    setHist(h => ({ past: [...h.past, h.current], current: updater(h.current), future: [] }))
+    setHist(h => {
+      const next = updater(h.current)
+      // Setting a value to itself (same speed, filter, reset of an empty crop…)
+      // is not an edit and must not cost an undo step.
+      if (next === h.current || shallowEqual(next, h.current)) return h
+      return { past: pushPast(h.past, h.current), current: next, future: [] }
+    })
   }, [])
 
   /**
@@ -58,7 +74,7 @@ export function useEditorHistory(initial: EditableState = defaultEditable) {
     const isFirstMove = !inGesture.current
     inGesture.current = true
     setHist(h => (isFirstMove
-      ? { past: [...h.past, h.current], current: updater(h.current), future: [] }
+      ? { past: pushPast(h.past, h.current), current: updater(h.current), future: [] }
       : { ...h, current: updater(h.current) }))
   }, [])
 
@@ -76,7 +92,7 @@ export function useEditorHistory(initial: EditableState = defaultEditable) {
   const redo = useCallback(() => {
     inGesture.current = false
     setHist(h => (h.future.length === 0 ? h : {
-      past: [...h.past, h.current],
+      past: pushPast(h.past, h.current),
       current: h.future[h.future.length - 1],
       future: h.future.slice(0, -1),
     }))

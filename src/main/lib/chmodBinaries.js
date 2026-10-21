@@ -4,7 +4,7 @@ const path = require('path')
 // Recursively chmods 0755 any file under `dir` whose name is in `names`.
 //
 // Packaging (asar unpack, .deb/AppImage install) doesn't always preserve the
-// executable bit on the bundled ffmpeg/ffprobe binaries, which makes
+// executable bit on the bundled ffmpeg binary, which makes
 // `ffmpeg.export` fail at runtime with `spawn ... EACCES`.
 function chmodBinaries(dir, names) {
   if (!fs.existsSync(dir)) return

@@ -136,9 +136,10 @@ describe('buildVideoFilters', () => {
       speed: 2,
     })
     expect(out).toHaveLength(6)
-    expect(out[0]).toBe('transpose=1')
-    expect(out[1]).toMatch(/^perspective=/)
-    expect(out[2]).toBe('crop=100:100:0:0')
+    // Crop first: its box is in source pixels, so it must precede any rotation.
+    expect(out[0]).toBe('crop=100:100:0:0')
+    expect(out[1]).toBe('transpose=1')
+    expect(out[2]).toMatch(/^perspective=/)
     expect(out[3]).toBe('hue=s=0')
     expect(out[4]).toBe('setpts=0.5000*PTS')
     expect(out[5]).toBe(EVEN_DIMENSIONS)

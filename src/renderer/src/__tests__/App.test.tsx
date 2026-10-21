@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import React from 'react'
 import App from '../App'
@@ -17,7 +17,13 @@ beforeEach(() => {
     toFileUrl: vi.fn(async (p: string) => `lcv-file://local${p}`),
     openVideo: vi.fn().mockResolvedValue(null),
     saveVideo: vi.fn().mockResolvedValue(null),
-    probeVideo: vi.fn().mockResolvedValue({ duration: 0, width: 0, height: 0 }),
+    cancelFfmpeg: vi.fn().mockResolvedValue(undefined),
+    saveProject: vi.fn().mockResolvedValue(null),
+    getChangelog: vi.fn().mockResolvedValue([]),
+    onMenuShowChangelog: vi.fn(() => () => {}),
+    setDirty: vi.fn(),
+    onMenuSaveProject: vi.fn(() => () => {}),
+    onMenuLoadProject: vi.fn(() => () => {}),
     previewVideo: vi.fn().mockResolvedValue('/tmp/preview.webm'),
     openSubtitleFile: vi.fn().mockResolvedValue(null),
     onPreviewProgress: vi.fn(() => () => {}),
@@ -289,7 +295,8 @@ describe('App — undo and redo', () => {
     await waitFor(() => expect(container.querySelector('.speed-display')?.textContent).toBe('1x'))
   })
 
-  it('clears the history when another video is loaded', async () => {
+  it('clears the history when another video is loaded (after confirming)', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
     const { container } = await loadedApp()
     const presets = container.querySelectorAll('.preset-btn')
     fireEvent.click(presets[presets.length - 1])
@@ -298,6 +305,33 @@ describe('App — undo and redo', () => {
     fireEvent.click(screen.getByRole('button', { name: /open video|ouvrir/i }))
     await waitFor(() => expect(screen.getByTitle(/undo|annuler/i)).toBeDisabled())
     expect(container.querySelector('.speed-display')?.textContent).toBe('1x')
+  })
+})
+
+describe('App — opening a video over unsaved edits', () => {
+  it('keeps the current video and its edits when the user declines', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const { container } = await loadedApp()
+    const presets = container.querySelectorAll('.preset-btn')
+    fireEvent.click(presets[presets.length - 1])
+    await waitFor(() => expect(screen.getByTitle(/undo|annuler/i)).not.toBeDisabled())
+    const speed = container.querySelector('.speed-display')?.textContent
+    const previewCalls = vi.mocked(window.electronAPI.previewVideo).mock.calls.length
+
+    fireEvent.click(screen.getByRole('button', { name: /open video|ouvrir/i }))
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
+
+    expect(vi.mocked(window.electronAPI.previewVideo).mock.calls.length).toBe(previewCalls)
+    expect(container.querySelector('.speed-display')?.textContent).toBe(speed)
+  })
+
+  it('does not ask when there is nothing to lose', async () => {
+    const confirm = vi.spyOn(window, 'confirm')
+    confirm.mockClear()
+    await loadedApp()
+    fireEvent.click(screen.getByRole('button', { name: /open video|ouvrir/i }))
+    await waitFor(() => expect(window.electronAPI.openVideo).toHaveBeenCalledTimes(2))
+    expect(confirm).not.toHaveBeenCalled()
   })
 })
 
@@ -340,6 +374,125 @@ describe('App — loading state', () => {
 
     await act(async () => { finish!('lcv-file://local/tmp/preview.webm') })
     await waitFor(() => expect(container.querySelector('.app-layout')).toBeTruthy())
+  })
+})
+
+describe('App — loading can be cancelled and cannot race', () => {
+  it('goes back to the drop zone and stops ffmpeg when the user cancels', async () => {
+    let finish: ((url: string) => void) | null = null
+    const cancelFfmpeg = vi.fn().mockResolvedValue(undefined)
+    window.electronAPI = {
+      ...window.electronAPI,
+      openVideo: vi.fn().mockResolvedValue('/tmp/in.mp4'),
+      cancelFfmpeg,
+      previewVideo: vi.fn(() => new Promise<string>(resolve => { finish = resolve })),
+    }
+    const { container } = r()
+    fireEvent.click(screen.getByRole('button', { name: /browse|parcourir/i }))
+    await waitFor(() => expect(container.querySelector('.loading-screen')).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel|annuler/i }))
+
+    expect(cancelFfmpeg).toHaveBeenCalled()
+    await waitFor(() => expect(container.querySelector('.dropzone')).toBeTruthy())
+    // The transcode finishing afterwards must not resurrect the cancelled load.
+    await act(async () => { finish!('lcv-file://local/tmp/late.webm') })
+    expect(container.querySelector('.app-layout')).toBeNull()
+  })
+
+  it('ignores an older load that finishes after a newer one', async () => {
+    const finishers: Array<(url: string) => void> = []
+    window.electronAPI = {
+      ...window.electronAPI,
+      openVideo: vi.fn().mockResolvedValueOnce('/tmp/a.mp4').mockResolvedValueOnce('/tmp/b.mp4'),
+      previewVideo: vi.fn(() => new Promise<string>(resolve => { finishers.push(resolve) })),
+    }
+    const { container } = r()
+    fireEvent.click(screen.getByRole('button', { name: /browse|parcourir/i }))
+    await waitFor(() => expect(finishers).toHaveLength(1))
+    // Menu "Open" while the first one is still transcoding.
+    const menuCalls = vi.mocked(window.electronAPI.onMenuOpenVideo).mock.calls
+    const onMenuOpen = menuCalls[menuCalls.length - 1][0]
+    act(() => { onMenuOpen('/tmp/b.mp4') })
+    await waitFor(() => expect(finishers).toHaveLength(2))
+
+    await act(async () => { finishers[1]('lcv-file://local/tmp/b.webm') })
+    await act(async () => { finishers[0]('lcv-file://local/tmp/a.webm') })
+
+    await waitFor(() => expect(container.querySelector('.app-layout')).toBeTruthy())
+    expect(container.querySelector('video')?.getAttribute('src')).toBe('lcv-file://local/tmp/b.webm')
+  })
+
+  it('tells the user when the video cannot be played at all', async () => {
+    window.electronAPI = {
+      ...window.electronAPI,
+      openVideo: vi.fn().mockResolvedValue('/tmp/in.mp4'),
+      previewVideo: vi.fn().mockRejectedValue('ffmpeg exploded'),
+      toFileUrl: vi.fn().mockRejectedValue(new Error('refused')),
+    }
+    const { container } = r()
+    fireEvent.click(screen.getByRole('button', { name: /browse|parcourir/i }))
+    await waitFor(() => expect(container.querySelector('.toast')).toBeTruthy())
+    expect(container.querySelector('.dropzone')).toBeTruthy()
+  })
+
+  it('shows a message when the player itself reports an error', async () => {
+    const { container } = await loadedApp()
+    fireEvent.error(container.querySelector('video')!)
+    await waitFor(() => expect(container.querySelector('.toast')).toBeTruthy())
+  })
+})
+
+describe('App — dropping files', () => {
+  const dropOf = (name: string) => {
+    const event = new Event('drop', { bubbles: true, cancelable: true }) as Event & { dataTransfer: unknown }
+    event.dataTransfer = { files: [new File(['x'], name)] }
+    return event
+  }
+
+  // Dropping outside the drop zone used to make Chromium navigate to the file,
+  // replacing the editor (and every edit) with the raw video.
+  it('never lets the browser navigate to a dropped file', async () => {
+    await loadedApp()
+    const event = dropOf('clip.mp4')
+    act(() => { window.dispatchEvent(event) })
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('also cancels dragover so the drop is delivered to the page', async () => {
+    await loadedApp()
+    const over = new Event('dragover', { bubbles: true, cancelable: true })
+    act(() => { window.dispatchEvent(over) })
+    expect(over.defaultPrevented).toBe(true)
+  })
+
+  it('opens a video dropped on the editor', async () => {
+    await loadedApp()
+    window.electronAPI.getPathForFile = vi.fn(() => '/tmp/dropped.mkv')
+    act(() => { window.dispatchEvent(dropOf('dropped.mkv')) })
+    await waitFor(() => expect(window.electronAPI.previewVideo).toHaveBeenCalledWith('/tmp/dropped.mkv'))
+  })
+
+  it('rejects a dropped file that is not a video, with a message', async () => {
+    const { container } = await loadedApp()
+    const before = vi.mocked(window.electronAPI.previewVideo).mock.calls.length
+    act(() => { window.dispatchEvent(dropOf('notes.txt')) })
+    await waitFor(() => expect(container.querySelector('.toast')).toBeTruthy())
+    expect(vi.mocked(window.electronAPI.previewVideo).mock.calls.length).toBe(before)
+  })
+
+  it('accepts a video whose MIME type is empty (MKV/FLV on some platforms)', async () => {
+    const { container } = r()
+    const dropzone = container.querySelector('.dropzone') as HTMLElement
+    window.electronAPI.getPathForFile = vi.fn(() => '/tmp/movie.mkv')
+    fireEvent.drop(dropzone, { dataTransfer: { files: [new File(['x'], 'movie.mkv', { type: '' })] } })
+    await waitFor(() => expect(window.electronAPI.previewVideo).toHaveBeenCalledWith('/tmp/movie.mkv'))
+  })
+
+  it('says why a non-video dropped on the drop zone was ignored', async () => {
+    const { container } = r()
+    fireEvent.drop(container.querySelector('.dropzone') as HTMLElement, { dataTransfer: { files: [new File(['x'], 'a.pdf', { type: 'application/pdf' })] } })
+    await waitFor(() => expect(container.querySelector('.toast')).toBeTruthy())
   })
 })
 
@@ -698,5 +851,363 @@ describe('App — reprise après la fin de la lecture', () => {
     fireEvent.click(playBtn)
 
     await waitFor(() => expect(pause).toHaveBeenCalled())
+  })
+})
+// ─── Playback fixes: Space, frame-accurate cut skipping, replay at the end ───
+
+describe('App — playback fixes', () => {
+  function videoOf(container: HTMLElement) {
+    const video = container.querySelector('video') as HTMLVideoElement
+    let time = 0
+    let paused = true
+    Object.defineProperty(video, 'currentTime', { configurable: true, get: () => time, set: (t: number) => { time = t } })
+    Object.defineProperty(video, 'paused', { configurable: true, get: () => paused })
+    Object.defineProperty(video, 'ended', { configurable: true, get: () => false })
+    Object.defineProperty(video, 'duration', { configurable: true, get: () => 100 })
+    video.play = vi.fn(() => { paused = false; return Promise.resolve() })
+    video.pause = vi.fn(() => { paused = true })
+    return video
+  }
+
+  async function ready() {
+    const view = await loadedApp()
+    const video = videoOf(view.container)
+    act(() => { fireEvent.loadedMetadata(video) })
+    return { ...view, video }
+  }
+
+  function cutMiddle(container: HTMLElement) {
+    const track = container.querySelector('.tl-track') as HTMLElement
+    track.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, right: 1000, bottom: 60, width: 1000, height: 60, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+    track.setPointerCapture = vi.fn()
+    fireEvent.pointerDown(track, { clientX: 200, pointerId: 1 })
+    fireEvent.pointerUp(track, { clientX: 400, pointerId: 1 })
+  }
+
+  describe('Space', () => {
+    it('toggles playback', async () => {
+      const { video } = await ready()
+      fireEvent.keyDown(window, { code: 'Space' })
+      expect(video.play).toHaveBeenCalledTimes(1)
+      act(() => { fireEvent.play(video) })
+      fireEvent.keyDown(window, { code: 'Space' })
+      expect(video.pause).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not also activate the toolbar button that has focus', async () => {
+      const { container } = await ready()
+      const down = new KeyboardEvent('keydown', { code: 'Space', bubbles: true, cancelable: true })
+      const up = new KeyboardEvent('keyup', { code: 'Space', bubbles: true, cancelable: true })
+      const mute = container.querySelector('.tool-toggle-btn.active-ok:last-of-type, .tool-toggle-btn') as HTMLElement
+      act(() => { mute.focus(); mute.dispatchEvent(down); mute.dispatchEvent(up) })
+      expect(down.defaultPrevented).toBe(true)
+      expect(up.defaultPrevented).toBe(true)
+    })
+
+    it('is left alone while typing in a text field', async () => {
+      const { container, video } = await ready()
+      cutMiddle(container)
+      const input = container.querySelector('.cut-editor-input') as HTMLInputElement
+      fireEvent.keyDown(input, { code: 'Space' })
+      expect(video.play).not.toHaveBeenCalled()
+    })
+
+    it('is ignored while the export dialog is open', async () => {
+      const { video } = await ready()
+      fireEvent.click(screen.getByRole('button', { name: /^export(er)?$/i }))
+      await waitFor(() => expect(document.querySelector('.modal')).toBeTruthy())
+      fireEvent.keyDown(window, { code: 'Space' })
+      expect(video.play).not.toHaveBeenCalled()
+    })
+
+    it('is ignored when no video is loaded', () => {
+      r()
+      expect(() => fireEvent.keyDown(window, { code: 'Space' })).not.toThrow()
+    })
+  })
+
+  describe('cut skipping runs every frame, not every ~250 ms', () => {
+    let frames: Array<() => void>
+    beforeEach(() => {
+      frames = []
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+        frames.push(() => cb(0))
+        return frames.length
+      })
+      vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+    })
+    afterEach(() => { vi.restoreAllMocks() })
+
+    it('jumps over a cut on the next frame without waiting for timeupdate', async () => {
+      const { container, video } = await ready()
+      cutMiddle(container)
+      act(() => { fireEvent.play(video) })
+      video.currentTime = 25 // inside the 20–40 cut; no `timeupdate` fired
+      Object.defineProperty(video, 'paused', { configurable: true, get: () => false })
+      act(() => { frames.splice(0).forEach(f => f()) })
+      expect(video.currentTime).toBe(40)
+    })
+
+    it('stops polling when playback stops', async () => {
+      const { container, video } = await ready()
+      cutMiddle(container)
+      act(() => { fireEvent.play(video) })
+      act(() => { fireEvent.pause(video) })
+      const cancel = vi.mocked(window.cancelAnimationFrame)
+      expect(cancel).toHaveBeenCalled()
+    })
+  })
+
+  // Seeking to the end of a cut lands on the nearest frame, often a few ms
+  // *before* it. That used to count as "still inside the cut": the player sought
+  // again, landed short again, and froze for good.
+  describe('landing just short of the end of a cut', () => {
+    async function playingInCut() {
+      const { container, video } = await ready()
+      cutMiddle(container) // cut 20–40
+      Object.defineProperty(video, 'paused', { configurable: true, get: () => false })
+      return { video }
+    }
+
+    it('does not seek again from a frame a hair before the cut end', async () => {
+      const { video } = await playingInCut()
+      act(() => { video.currentTime = 39.98; fireEvent.timeUpdate(video) })
+      expect(video.currentTime).toBe(39.98)
+    })
+
+    it('still skips a position clearly inside the cut', async () => {
+      const { video } = await playingInCut()
+      act(() => { video.currentTime = 39.5; fireEvent.timeUpdate(video) })
+      expect(video.currentTime).toBe(40)
+    })
+
+    it('does not restart a seek that is already in progress', async () => {
+      const { video } = await playingInCut()
+      Object.defineProperty(video, 'seeking', { configurable: true, get: () => true })
+      act(() => { video.currentTime = 25; fireEvent.timeUpdate(video) })
+      expect(video.currentTime).toBe(25)
+    })
+  })
+
+  describe('replay after playback stopped short of the end', () => {
+    // Playback stops at the end of the last kept part. With a cut at the tail the
+    // file has not "ended", so the next Play used to start inside the cut and stop
+    // again at once: it took two clicks to get back to the start.
+    it('restarts from the first kept part on one click', async () => {
+      const { container, video } = await ready()
+      const track = container.querySelector('.tl-track') as HTMLElement
+      track.getBoundingClientRect = () =>
+        ({ left: 0, top: 0, right: 1000, bottom: 60, width: 1000, height: 60, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+      track.setPointerCapture = vi.fn()
+      fireEvent.pointerDown(track, { clientX: 800, pointerId: 1 })
+      fireEvent.pointerUp(track, { clientX: 1000, pointerId: 1 }) // cut the last 20 s: kept = 0–80
+      video.currentTime = 80
+
+      fireEvent.click(container.querySelector('.play-btn') as HTMLElement)
+
+      expect(video.currentTime).toBe(0)
+      expect(video.play).toHaveBeenCalled()
+    })
+
+    it('does not rewind when playback resumes mid-video', async () => {
+      const { container, video } = await ready()
+      video.currentTime = 30
+      fireEvent.click(container.querySelector('.play-btn') as HTMLElement)
+      expect(video.currentTime).toBe(30)
+    })
+  })
+
+  describe('shortcut hints', () => {
+    it('names the shortcut in the undo and redo tooltips', async () => {
+      await ready()
+      expect(screen.getByTitle(/undo|annuler/i).getAttribute('title')).toMatch(/Ctrl\+Z|Cmd\+Z/)
+      expect(screen.getByTitle(/redo|rétablir/i).getAttribute('title')).toMatch(/Ctrl\+Y|Cmd\+Shift\+Z/)
+    })
+  })
+})
+
+// ─── Projects, unsaved edits, text-field undo, keyboard transport ───────────
+
+describe('App — projects and unsaved edits', () => {
+  const menuHandler = (name: 'onMenuSaveProject' | 'onMenuLoadProject' | 'onMenuUndo') => {
+    const calls = vi.mocked(window.electronAPI[name]).mock.calls as unknown as Array<[(...a: unknown[]) => void]>
+    return calls[calls.length - 1][0]
+  }
+
+  it('reports whether there are edits the main process should protect', async () => {
+    const { container } = await loadedApp()
+    expect(window.electronAPI.setDirty).toHaveBeenLastCalledWith(false)
+    const presets = container.querySelectorAll('.preset-btn')
+    fireEvent.click(presets[presets.length - 1])
+    await waitFor(() => expect(window.electronAPI.setDirty).toHaveBeenLastCalledWith(true))
+  })
+
+  it('saves the video path and every edit when the menu asks', async () => {
+    const saveProject = vi.fn().mockResolvedValue('/p/x.lcvproj')
+    window.electronAPI = { ...window.electronAPI, saveProject }
+    const { container } = await loadedApp()
+    const presets = container.querySelectorAll('.preset-btn')
+    fireEvent.click(presets[presets.length - 1])
+    await act(async () => { menuHandler('onMenuSaveProject')() })
+    expect(saveProject).toHaveBeenCalledWith(expect.objectContaining({ videoPath: '/tmp/in.mp4', state: expect.objectContaining({ speed: 4 }) }))
+    await waitFor(() => expect(container.querySelector('.toast')).toBeTruthy())
+  })
+
+  it('does not save anything without a video', async () => {
+    const saveProject = vi.fn()
+    window.electronAPI = { ...window.electronAPI, saveProject }
+    r()
+    await act(async () => { menuHandler('onMenuSaveProject')() })
+    expect(saveProject).not.toHaveBeenCalled()
+  })
+
+  it('shows a message when saving fails', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    window.electronAPI = { ...window.electronAPI, saveProject: vi.fn().mockRejectedValue(new Error('EACCES')) }
+    const { container } = await loadedApp()
+    await act(async () => { menuHandler('onMenuSaveProject')() })
+    await waitFor(() => expect(container.querySelector('.toast')).toBeTruthy())
+    log.mockRestore()
+  })
+
+  it('opens a project: loads its video and restores its edits as the starting point', async () => {
+    const { container } = r()
+    await act(async () => {
+      menuHandler('onMenuLoadProject')({ videoPath: '/tmp/proj.mp4', state: { speed: 2, muted: true, cutSegments: [{ id: 'a', start: 1, end: 2 }] } })
+    })
+    await waitFor(() => expect(container.querySelector('.app-layout')).toBeTruthy())
+    expect(window.electronAPI.previewVideo).toHaveBeenCalledWith('/tmp/proj.mp4')
+    expect(container.querySelector('.speed-display')?.textContent).toBe('2x')
+    expect(container.querySelectorAll('.tl-cut')).toHaveLength(1)
+    // The restored state is the baseline, not an undoable edit.
+    expect(screen.getByTitle(/undo|annuler/i)).toBeDisabled()
+  })
+
+  it('sanitises a project file with bad values instead of trusting it', async () => {
+    const { container } = r()
+    await act(async () => { menuHandler('onMenuLoadProject')({ videoPath: '/tmp/p.mp4', state: { speed: 9999, rotation: 'x' } }) })
+    await waitFor(() => expect(container.querySelector('.app-layout')).toBeTruthy())
+    expect(container.querySelector('.speed-display')?.textContent).toBe('1x')
+  })
+})
+
+describe('App — undo inside a text field', () => {
+  it('leaves Cmd/Ctrl+Z to the focused text field', async () => {
+    const exec = vi.fn(() => true)
+    ;(document as unknown as { execCommand: unknown }).execCommand = exec
+    const { container } = await loadedApp()
+    const presets = container.querySelectorAll('.preset-btn')
+    fireEvent.click(presets[presets.length - 1])
+    await waitFor(() => expect(screen.getByTitle(/undo|annuler/i)).not.toBeDisabled())
+
+    // Select a cut so its time fields exist, focus one, then trigger the menu's Undo.
+    const track = container.querySelector('.tl-track') as HTMLElement
+    track.getBoundingClientRect = () => ({ left: 0, top: 0, right: 1000, bottom: 60, width: 1000, height: 60, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+    track.setPointerCapture = vi.fn()
+    const video = container.querySelector('video') as HTMLVideoElement
+    Object.defineProperty(video, 'duration', { configurable: true, get: () => 100 })
+    act(() => { fireEvent.loadedMetadata(video) })
+    fireEvent.pointerDown(track, { clientX: 200, pointerId: 1 })
+    fireEvent.pointerUp(track, { clientX: 400, pointerId: 1 })
+    const input = container.querySelector('.cut-editor-input') as HTMLInputElement
+    act(() => input.focus())
+
+    const calls = vi.mocked(window.electronAPI.onMenuUndo).mock.calls as unknown as Array<[() => void]>
+    act(() => { calls[calls.length - 1][0]() })
+    expect(exec).toHaveBeenCalledWith('undo')
+  })
+})
+
+describe('App — keyboard transport', () => {
+  function playing() {
+    return loadedApp().then(view => {
+      const video = view.container.querySelector('video') as HTMLVideoElement
+      let time = 50
+      Object.defineProperty(video, 'currentTime', { configurable: true, get: () => time, set: (t: number) => { time = t } })
+      Object.defineProperty(video, 'duration', { configurable: true, get: () => 100 })
+      Object.defineProperty(video, 'paused', { configurable: true, get: () => true })
+      video.pause = vi.fn()
+      act(() => { fireEvent.loadedMetadata(video); fireEvent.timeUpdate(video) })
+      return { ...view, video }
+    })
+  }
+
+  it.each([
+    ['ArrowRight', {}, 51],
+    ['ArrowLeft', {}, 49],
+    ['ArrowRight', { shiftKey: true }, 55],
+    ['ArrowLeft', { shiftKey: true }, 45],
+    ['KeyL', {}, 55],
+    ['KeyJ', {}, 45],
+  ])('%s %j seeks to %i s', async (code, mods, expected) => {
+    const { video } = await playing()
+    fireEvent.keyDown(window, { code, ...mods })
+    expect(video.currentTime).toBeCloseTo(expected, 5)
+  })
+
+  it('steps one frame back and forward with , and . (pausing first)', async () => {
+    const { video } = await playing()
+    fireEvent.keyDown(window, { code: 'Period' })
+    expect(video.currentTime).toBeCloseTo(50 + 1 / 30, 5)
+    expect(video.pause).toHaveBeenCalled()
+    act(() => { fireEvent.timeUpdate(video) }) // the player reports the new position
+    fireEvent.keyDown(window, { code: 'Comma' })
+    expect(video.currentTime).toBeCloseTo(50, 5)
+  })
+
+  it('K toggles playback like Space', async () => {
+    const { video } = await playing()
+    video.play = vi.fn(() => Promise.resolve())
+    fireEvent.keyDown(window, { code: 'KeyK' })
+    expect(video.play).toHaveBeenCalled()
+  })
+
+  it('never seeks past the ends', async () => {
+    const { video } = await playing()
+    video.currentTime = 99.5
+    act(() => { fireEvent.timeUpdate(video) })
+    fireEvent.keyDown(window, { code: 'ArrowRight', shiftKey: true })
+    expect(video.currentTime).toBeLessThanOrEqual(100)
+  })
+
+  it('ignores shortcuts with Ctrl/Cmd (they belong to the menu)', async () => {
+    const { video } = await playing()
+    fireEvent.keyDown(window, { code: 'KeyL', ctrlKey: true })
+    expect(video.currentTime).toBe(50)
+  })
+
+  it('leaves arrow keys to a focused slider', async () => {
+    const { video, container } = await playing()
+    const slider = container.querySelector('input[type="range"]') as HTMLInputElement
+    fireEvent.keyDown(slider, { code: 'ArrowRight' })
+    expect(video.currentTime).toBe(50)
+  })
+
+  it('leaves letters to a text field', async () => {
+    const { video, container } = await playing()
+    const track = container.querySelector('.tl-track') as HTMLElement
+    track.getBoundingClientRect = () => ({ left: 0, top: 0, right: 1000, bottom: 60, width: 1000, height: 60, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+    track.setPointerCapture = vi.fn()
+    fireEvent.pointerDown(track, { clientX: 200, pointerId: 1 })
+    fireEvent.pointerUp(track, { clientX: 400, pointerId: 1 })
+    fireEvent.keyDown(container.querySelector('.cut-editor-input') as HTMLElement, { code: 'KeyL' })
+    expect(video.currentTime).toBe(50)
+  })
+})
+
+describe('App — filter previews', () => {
+  it('opens the filters panel even when the frame cannot be captured (tainted canvas)', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const toDataURL = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation(() => { throw new DOMException('Tainted canvases may not be exported.', 'SecurityError') })
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: () => {} } as unknown as CanvasRenderingContext2D)
+    const { container } = await loadedApp()
+    const video = container.querySelector('video') as HTMLVideoElement
+    Object.defineProperty(video, 'videoWidth', { configurable: true, value: 640 })
+    Object.defineProperty(video, 'videoHeight', { configurable: true, value: 360 })
+    fireEvent.click(container.querySelectorAll('.tool-toggle-btn')[1])
+    await waitFor(() => expect(container.querySelector('.filters-panel')).toBeTruthy())
+    expect(container.querySelector('.filter-preview-img')).toBeNull() // placeholders instead
+    toDataURL.mockRestore(); getContext.mockRestore(); log.mockRestore()
   })
 })

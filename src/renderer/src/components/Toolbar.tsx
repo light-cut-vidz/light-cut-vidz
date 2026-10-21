@@ -1,6 +1,8 @@
 import React, { memo } from 'react'
 import type { EditorState } from '../App'
 import { useT } from '../i18n'
+import { SHOW_CHANGELOG_EVENT } from './ChangelogModal'
+import { getFilterById } from '../utils/filters'
 import { CubeIcon, StarIcon, SoundOnIcon, SoundOffIcon, CropIcon, SubtitleIcon } from './icons'
 import './Toolbar.css'
 
@@ -24,7 +26,9 @@ interface Props {
 }
 
 function Toolbar({ state, showCrop, showFilters, showGeometry, showSubtitles, onSpeedChange, onSpeedChangeLive, onCommit, onMuteToggle, onCropToggle, onCropReset, onFilterToggle, onGeometryToggle, onSubtitlesToggle }: Props) {
-  const { t } = useT()
+  const { t, lang } = useT()
+  const activeFilter = getFilterById(state.filter)
+  const geometryActive = state.rotation !== 0 || state.straighten !== 0 || state.perspectiveHorizontal !== 0 || state.perspectiveVertical !== 0
 
   return (
     <div className="toolbar">
@@ -32,7 +36,7 @@ function Toolbar({ state, showCrop, showFilters, showGeometry, showSubtitles, on
       <div className="tool-section">
         <div className="tool-label">{t.tool_geometry}</div>
         <button
-          className={`tool-toggle-btn ${showGeometry ? 'active-accent' : (state.rotation !== 0 || state.perspectiveHorizontal !== 0 || state.perspectiveVertical !== 0 ? 'active-ok' : '')}`}
+          className={`tool-toggle-btn ${showGeometry ? 'active-accent' : (geometryActive ? 'active-ok' : '')}`}
           onClick={onGeometryToggle}
         >
           <CubeIcon />
@@ -50,7 +54,7 @@ function Toolbar({ state, showCrop, showFilters, showGeometry, showSubtitles, on
           onClick={onFilterToggle}
         >
           <StarIcon />
-          {state.filter === 'none' ? t.tool_filters : state.filter.charAt(0).toUpperCase() + state.filter.slice(1)}
+          {state.filter === 'none' ? t.tool_filters : (lang === 'fr' ? activeFilter.nameFr : activeFilter.nameEn)}
         </button>
       </div>
 
@@ -84,6 +88,7 @@ function Toolbar({ state, showCrop, showFilters, showGeometry, showSubtitles, on
           value={SPEED_PRESETS.indexOf(state.speed) !== -1 ? SPEED_PRESETS.indexOf(state.speed) : 3}
           onChange={(e) => onSpeedChangeLive(SPEED_PRESETS[Number(e.target.value)])}
           onPointerUp={onCommit}
+          onPointerCancel={onCommit}
           onKeyUp={onCommit}
           onBlur={onCommit}
           className="speed-slider"
@@ -162,7 +167,7 @@ function Toolbar({ state, showCrop, showFilters, showGeometry, showSubtitles, on
       </div>
 
       <div className="toolbar-spacer" />
-      <div className="toolbar-version">v{__APP_VERSION__}</div>
+      <button className="toolbar-version" onClick={() => window.dispatchEvent(new Event(SHOW_CHANGELOG_EVENT))} title={t.changelog_title}>v{__APP_VERSION__}</button>
     </div>
   )
 }

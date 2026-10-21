@@ -152,3 +152,5 @@
   color: var(--accent);
   text-align: center;
 }
+
+.toolbar-version:hover { opacity: 1; color: var(--text-primary); text-decoration: underline; cursor: pointer; }

@@ -9,8 +9,13 @@ import VideoControls from './components/VideoControls'
 import Toast from './components/Toast'
 import { UndoIcon, RedoIcon } from './components/icons'
 import SubtitleOverlay from './components/SubtitleOverlay'
+import FilterDefs from './components/FilterDefs'
+import VignetteOverlay from './components/VignetteOverlay'
 import { useEditorHistory } from './hooks/useHistory'
 import { getKeptSegments, getVirtualDuration, realToVirtual, virtualToReal } from './utils/time'
+import { isVideoFileName } from './utils/video'
+import { toProject, fromProjectState } from './utils/project'
+import type { EditableState } from './hooks/useHistory'
 import type { SubtitleCue } from './utils/srt'
 import { useT } from './i18n'
 import './styles/App.css'
@@ -88,6 +93,9 @@ export interface EditorState {
 
 type ActivePanel = 'crop' | 'filters' | 'geometry' | 'subtitles' | null
 
+// How far short of a requested time the player may land (about one frame).
+const SEEK_LANDING_MARGIN = 0.05
+
 const isMac = navigator.platform.includes('Mac')
 
 export default function App() {
@@ -116,13 +124,23 @@ export default function App() {
   const captureFrame = useCallback(() => {
     const video = videoRef.current
     if (!video || !video.videoWidth) return
+    // The grid shows 20 thumbnails of this frame: a full-resolution 4K data URL
+    // (several MB, encoded synchronously) buys nothing there.
+    const scale = Math.min(1, 320 / video.videoWidth)
     const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale))
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale))
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    ctx.drawImage(video, 0, 0)
-    setFilterFrameUrl(canvas.toDataURL('image/jpeg', 0.8))
+    try {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      setFilterFrameUrl(canvas.toDataURL('image/jpeg', 0.8))
+    } catch (err) {
+      // A tainted canvas must not take the panel down: the cards fall back to
+      // their placeholder preview.
+      console.error('Could not capture a frame for the filter previews:', err)
+      setFilterFrameUrl(null)
+    }
   }, [])
 
   // Stable, undoable setters — each one snapshots the previous state onto the history stack
@@ -147,6 +165,9 @@ export default function App() {
   const setSubtitlesStyle = useCallback((style: SubtitleStyle) => set(p => (
     p.subtitles ? { ...p, subtitles: { ...p.subtitles, style } } : p
   )), [set])
+  const setSubtitlesStyleLive = useCallback((style: SubtitleStyle) => setLive(p => (
+    p.subtitles ? { ...p, subtitles: { ...p.subtitles, style } } : p
+  )), [setLive])
   const setSubtitlesAnimation = useCallback((animation: SubtitleAnimation) => set(p => (
     p.subtitles ? { ...p, subtitles: { ...p.subtitles, animation } } : p
   )), [set])
@@ -159,60 +180,139 @@ export default function App() {
   const onCropToggle = useCallback(() => setActivePanel(p => p === 'crop' ? null : 'crop'), [])
   const onCropReset = useCallback(() => { setCrop(null); setActivePanel(p => p === 'crop' ? null : p) }, [setCrop])
   const onFilterToggle = useCallback(() => {
-    setActivePanel(p => {
-      if (p === 'filters') return null
-      captureFrame()
-      return 'filters'
-    })
-  }, [captureFrame])
+    // Capturing is a side effect: it stays out of the state updater, which React
+    // may run twice.
+    if (activePanel !== 'filters') captureFrame()
+    setActivePanel(p => p === 'filters' ? null : 'filters')
+  }, [activePanel, captureFrame])
   const onGeometryToggle = useCallback(() => setActivePanel(p => p === 'geometry' ? null : 'geometry'), [])
   const onSubtitlesToggle = useCallback(() => setActivePanel(p => p === 'subtitles' ? null : 'subtitles'), [])
 
   // ─── Load video ────────────────────────────────────────────────────────────
-  const loadVideo = useCallback(async (filePath: string) => {
+  // Each load gets an id; only the latest may touch state, so two overlapping
+  // loads (menu "Open" while one transcodes) cannot leave the player on one file
+  // and the export on another.
+  const loadId = useRef(0)
+  const hasEdits = useRef(false)
+  useEffect(() => { hasEdits.current = canUndo }, [canUndo])
+
+  const loadVideo = useCallback(async (filePath: string, initial?: EditableState) => {
+    if (hasEdits.current && !window.confirm(t.confirm_open_new)) return
+    const id = ++loadId.current
     setLoading({ msg: t.loading_preparing, progress: 0 })
-    setIsPlaying(false)
-    setActivePanel(null)
-    reset()
 
     // Registered outside the try so the failure path unregisters it too.
-    const off = window.electronAPI.onPreviewProgress((p) =>
-      setLoading({ msg: t.loading_preparing, progress: p }),
-    )
+    const off = window.electronAPI.onPreviewProgress((p) => {
+      if (id === loadId.current) setLoading({ msg: t.loading_preparing, progress: p })
+    })
+    let url: string | null = null
     try {
-      setVideoUrl(await window.electronAPI.previewVideo(filePath))
-      setVideoPath(filePath)
+      url = await window.electronAPI.previewVideo(filePath)
     } catch (err) {
-      console.error('Preview transcode failed:', err)
-      setVideoPath(filePath)
-      setVideoUrl(await window.electronAPI.toFileUrl(filePath))
-    } finally {
-      off()
-      setDuration(0)
-      setCurrentTime(0)
-      setLoading(null)
+      if (id === loadId.current) {
+        console.error('Preview transcode failed:', err)
+        // Fall back to the source: it may still play natively.
+        try { url = await window.electronAPI.toFileUrl(filePath) } catch { url = null }
+      }
     }
+    off()
+    if (id !== loadId.current) return // superseded or cancelled
+
+    if (!url) {
+      setLoading(null)
+      setToast(t.error_video_unreadable)
+      return
+    }
+    setIsPlaying(false)
+    setActivePanel(null)
+    reset(initial)
+    setVideoPath(filePath)
+    setVideoUrl(url)
+    setDuration(0)
+    setCurrentTime(0)
+    setLoading(null)
   }, [t, reset])
+
+  const cancelLoad = useCallback(() => {
+    loadId.current++
+    void window.electronAPI.cancelFfmpeg()
+    setLoading(null)
+  }, [])
 
   const handleOpenVideo = useCallback(async () => {
     const filePath = await window.electronAPI.openVideo()
     if (filePath) loadVideo(filePath)
   }, [loadVideo])
 
+  // With a text field focused, Cmd/Ctrl+Z belongs to the field, not to the
+  // timeline's history (the menu accelerator would otherwise swallow it).
+  const inTextField = () => {
+    const el = document.activeElement as HTMLElement | null
+    return !!el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !['range', 'color', 'checkbox', 'radio', 'button'].includes((el as HTMLInputElement).type)))
+  }
+  const undoOrTextUndo = useCallback(() => { if (inTextField()) document.execCommand('undo'); else undo() }, [undo])
+  const redoOrTextRedo = useCallback(() => { if (inTextField()) document.execCommand('redo'); else redo() }, [redo])
+
+  // ─── Projects and unsaved edits ────────────────────────────────────────────
+  const videoPathRef = useRef<string | null>(null)
+  const editableRef = useRef(editable)
+  useEffect(() => { videoPathRef.current = videoPath; editableRef.current = editable }, [videoPath, editable])
+
+  const saveProject = useCallback(async () => {
+    const path = videoPathRef.current
+    if (!path) return
+    try {
+      const saved = await window.electronAPI.saveProject(toProject(path, editableRef.current))
+      if (saved) setToast(t.project_saved)
+    } catch (err) {
+      console.error('Project save failed:', err)
+      setToast(t.project_save_failed)
+    }
+  }, [t])
+
+  // The main process asks before closing the window when this is true.
+  useEffect(() => {
+    window.electronAPI.setDirty(canUndo)
+  }, [canUndo])
+
   // ─── Menu events ───────────────────────────────────────────────────────────
   useEffect(() => {
     const offs = [
       window.electronAPI.onMenuOpenVideo((fp) => loadVideo(fp)),
-      window.electronAPI.onMenuUndo(undo),
-      window.electronAPI.onMenuRedo(redo),
+      window.electronAPI.onMenuUndo(undoOrTextUndo),
+      window.electronAPI.onMenuRedo(redoOrTextRedo),
+      window.electronAPI.onMenuSaveProject(() => { void saveProject() }),
+      window.electronAPI.onMenuLoadProject((p) => { void loadVideo(p.videoPath, fromProjectState(p.state)) }),
       window.electronAPI.onFullscreenEntered(() => setToast(fullscreenHint)),
     ]
     return () => offs.forEach(off => off())
-  }, [loadVideo, undo, redo, fullscreenHint])
+  }, [loadVideo, undoOrTextUndo, redoOrTextRedo, saveProject, fullscreenHint])
 
   useEffect(() => {
     window.electronAPI.setUndoRedoState(canUndo, canRedo)
   }, [canUndo, canRedo])
+
+  // Dropping a file anywhere must never navigate the window to it (that would
+  // wipe the editor). The drop zone handles its own; elsewhere we open it here.
+  useEffect(() => {
+    const onDragOver = (e: DragEvent) => e.preventDefault()
+    const onDrop = (e: DragEvent) => {
+      const handled = e.defaultPrevented
+      e.preventDefault()
+      if (handled) return
+      const file = e.dataTransfer?.files[0]
+      if (!file) return
+      if (!isVideoFileName(file.name)) { setToast(t.error_not_video); return }
+      const filePath = window.electronAPI.getPathForFile(file)
+      if (filePath) void loadVideo(filePath)
+    }
+    window.addEventListener('dragover', onDragOver)
+    window.addEventListener('drop', onDrop)
+    return () => {
+      window.removeEventListener('dragover', onDragOver)
+      window.removeEventListener('drop', onDrop)
+    }
+  }, [loadVideo, t])
 
   // Kept segments = inverse of cuts.
   const keptSegments = useMemo(
@@ -237,13 +337,16 @@ export default function App() {
   }, [keptSegments])
 
   // Skip cut zones during playback; stop at the end of the last kept segment.
-  const handleTimeUpdate = useCallback((realTime: number) => {
-    setCurrentTime(realTime)
+  const skipCuts = useCallback((realTime: number) => {
     const cuts = editable.cutSegments
     const video = videoRef.current
-    if (!cuts.length || !video || video.paused) return
+    // A seek is already on its way: asking again restarts it.
+    if (!cuts.length || !video || video.paused || video.seeking) return
     for (const cut of cuts) {
-      if (realTime >= cut.start && realTime < cut.end) {
+      // Seeking to `cut.end` lands on the nearest frame, which can be a few
+      // milliseconds *before* it. Without a margin that still counts as inside the
+      // cut, so the player seeks again, lands short again, and freezes there.
+      if (realTime >= cut.start && realTime < cut.end - SEEK_LANDING_MARGIN) {
         video.currentTime = cut.end
         return
       }
@@ -255,21 +358,102 @@ export default function App() {
     }
   }, [editable.cutSegments, keptSegments])
 
+  const handleTimeUpdate = useCallback((realTime: number) => {
+    setCurrentTime(realTime)
+    skipCuts(realTime)
+  }, [skipCuts])
+
+  // `timeupdate` fires about every 250 ms: the player would run up to a quarter
+  // second into a removed zone before skipping it. Check every frame instead.
+  useEffect(() => {
+    if (!isPlaying) return
+    let raf = 0
+    const tick = () => {
+      const video = videoRef.current
+      if (video && !video.paused) skipCuts(video.currentTime)
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [isPlaying, skipCuts])
+
   const handlePlayPause = useCallback(() => {
     const video = videoRef.current
     if (!video) return
     if (isPlaying) {
       video.pause()
     } else {
-      if (video.ended) video.currentTime = keptSegments[0]?.start ?? 0
+      // Playback stops at the end of the last kept part, which may be short of
+      // the file's end (so `ended` is false): restart from the top then too,
+      // instead of needing a second click.
+      const first = keptSegments[0]?.start ?? 0
+      const lastEnd = keptSegments[keptSegments.length - 1]?.end
+      if (video.ended || (lastEnd !== undefined && video.currentTime >= lastEnd - 0.05)) video.currentTime = first
       void video.play()
     }
   }, [isPlaying, keptSegments])
+
+  // Keyboard transport. Space (or K) toggles playback, as the README promises —
+  // without this it activated whichever toolbar button last had focus. The
+  // others: ←/→ seek 1 s (Shift: 5 s), J/L seek 5 s, ,/. step one frame.
+  const transportRef = useRef({ time: 0, duration: 0 })
+  useEffect(() => { transportRef.current = { time: virtualCurrentTime, duration: virtualDuration } }, [virtualCurrentTime, virtualDuration])
+  const FRAME = 1 / 30 // the real frame rate is not known to the renderer
+
+  useEffect(() => {
+    if (!videoPath || showExport) return
+    const isTextual = (el: EventTarget | null) => {
+      const node = el as HTMLElement | null
+      if (!node) return false
+      if (node.tagName === 'TEXTAREA' || node.tagName === 'SELECT' || node.isContentEditable) return true
+      return node.tagName === 'INPUT' && (node as HTMLInputElement).type !== 'range' && (node as HTMLInputElement).type !== 'color'
+    }
+    const jump = (delta: number) => {
+      const { time, duration: total } = transportRef.current
+      seekVirtual(Math.max(0, Math.min(total, time + delta)))
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat && e.code === 'Space') return
+      if (isTextual(e.target) || e.ctrlKey || e.metaKey || e.altKey) return
+      const onRange = (e.target as HTMLElement | null)?.tagName === 'INPUT' // arrows belong to a focused slider
+      switch (e.code) {
+        case 'Space':
+        case 'KeyK':
+          e.preventDefault(); handlePlayPause(); break
+        case 'ArrowLeft':
+          if (onRange) return
+          e.preventDefault(); jump(e.shiftKey ? -5 : -1); break
+        case 'ArrowRight':
+          if (onRange) return
+          e.preventDefault(); jump(e.shiftKey ? 5 : 1); break
+        case 'KeyJ': e.preventDefault(); jump(-5); break
+        case 'KeyL': e.preventDefault(); jump(5); break
+        case 'Comma': e.preventDefault(); videoRef.current?.pause(); jump(-FRAME); break
+        case 'Period': e.preventDefault(); videoRef.current?.pause(); jump(FRAME); break
+        default: break
+      }
+    }
+    // A focused button clicks on Space *release*: swallow that as well.
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !isTextual(e.target)) e.preventDefault()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [videoPath, showExport, handlePlayPause, seekVirtual, FRAME])
 
   const openExport = useCallback(() => setShowExport(true), [])
   const closeExport = useCallback(() => setShowExport(false), [])
   const onApplyCrop = useCallback(() => setActivePanel(null), [])
   const onToastDone = useCallback(() => setToast(null), [])
+  const onVideoError = useCallback(() => setToast(t.error_video_unreadable), [t])
+  const onSubtitlesError = useCallback(
+    (reason: 'empty' | 'read') => setToast(reason === 'empty' ? t.subtitles_empty : t.subtitles_error),
+    [t],
+  )
 
   const editorState = useMemo<EditorState>(() => ({
     videoPath,
@@ -298,13 +482,19 @@ export default function App() {
               <div className="loading-fill" style={{ width: `${loading.progress}%` }} />
             </div>
           )}
+          <button className="btn-ghost" onClick={cancelLoad}>{t.loading_cancel}</button>
         </div>
       </div>
     )
   }
 
   if (!videoPath) {
-    return <DropZone onDrop={loadVideo} onOpen={handleOpenVideo} />
+    return (
+      <>
+        <DropZone onDrop={loadVideo} onOpen={handleOpenVideo} onReject={() => setToast(t.error_not_video)} />
+        {toast && <Toast key={toast} message={toast} onDone={onToastDone} />}
+      </>
+    )
   }
 
   return (
@@ -312,10 +502,10 @@ export default function App() {
       <div className="top-bar">
         <div className="app-title">LightCutVidz</div>
         <div className="top-bar-actions">
-          <button className="btn-ghost btn-icon" onClick={undo} disabled={!canUndo} title={t.app_undo}>
+          <button className="btn-ghost btn-icon" onClick={undo} disabled={!canUndo} title={`${t.app_undo} (${isMac ? 'Cmd+Z' : 'Ctrl+Z'})`}>
             <UndoIcon />
           </button>
-          <button className="btn-ghost btn-icon" onClick={redo} disabled={!canRedo} title={t.app_redo}>
+          <button className="btn-ghost btn-icon" onClick={redo} disabled={!canRedo} title={`${t.app_redo} (${isMac ? 'Cmd+Shift+Z' : 'Ctrl+Y'})`}>
             <RedoIcon />
           </button>
           <button className="btn-ghost" onClick={handleOpenVideo}>{t.app_open_video}</button>
@@ -335,18 +525,21 @@ export default function App() {
             straighten={editable.straighten}
             perspectiveH={editable.perspectiveHorizontal}
             perspectiveV={editable.perspectiveVertical}
+            neutral={showCrop}
+            onError={onVideoError}
             onTimeUpdate={handleTimeUpdate}
             onDurationLoaded={setDuration}
             onPlayPause={setIsPlaying}
           />
-          <SubtitleOverlay videoRef={videoRef} subtitles={editable.subtitles} currentTime={currentTime} />
-          <CompositionGrid visible={showCrop || showGeometry} />
+          <FilterDefs />
+          <VignetteOverlay videoRef={videoRef} visible={editable.filter === 'vignette'} />
+          <SubtitleOverlay videoRef={videoRef} subtitles={editable.subtitles} currentTime={currentTime} crop={editable.crop} />
+          <CompositionGrid visible={showCrop || showGeometry} videoRef={videoRef} />
           {showCrop && (
             <Suspense fallback={null}>
               <CropOverlay
                 videoRef={videoRef}
                 crop={editable.crop}
-                onChange={setCrop}
                 onChangeLive={setCropLive}
                 onCommit={endGesture}
                 onApply={onApplyCrop}
@@ -354,7 +547,17 @@ export default function App() {
             </Suspense>
           )}
           {!showCrop && editable.crop && (
-            <CropFrame videoRef={videoRef} crop={editable.crop} />
+            <CropFrame
+              videoRef={videoRef}
+              crop={editable.crop}
+              geometry={{
+                rotation: editable.rotation,
+                straighten: editable.straighten,
+                perspectiveH: editable.perspectiveHorizontal,
+                perspectiveV: editable.perspectiveVertical,
+                filterId: editable.filter,
+              }}
+            />
           )}
         </div>
 
@@ -408,6 +611,9 @@ export default function App() {
               subtitles={editable.subtitles}
               onImport={setSubtitles}
               onStyleChange={setSubtitlesStyle}
+              onStyleChangeLive={setSubtitlesStyleLive}
+              onCommit={endGesture}
+              onError={onSubtitlesError}
               onAnimationChange={setSubtitlesAnimation}
               onRemove={removeSubtitles}
             />
@@ -442,7 +648,7 @@ export default function App() {
         </Suspense>
       )}
 
-      {toast && <Toast message={toast} onDone={onToastDone} />}
+      {toast && <Toast key={toast} message={toast} onDone={onToastDone} />}
     </div>
   )
 }

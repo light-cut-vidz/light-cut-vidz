@@ -4,7 +4,7 @@ import path from 'path'
 
 const sharedResolve = {
   alias: {
-    '@': path.resolve(__dirname, 'src/renderer/src'),
+    '@': path.resolve(import.meta.dirname, 'src/renderer/src'),
   },
 }
 
@@ -15,13 +15,9 @@ export default defineConfig({
   },
   resolve: sharedResolve,
   test: {
-    pool: 'threads',
-    poolOptions: {
-      threads: {
-        singleThread: true,
-      },
-    },
-    isolate: false,
+    // Default isolation: every file gets a fresh module registry, so one spec's
+    // mocks and singletons cannot leak into another (`poolOptions` no longer exists
+    // in Vitest 4 anyway).
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
@@ -54,7 +50,7 @@ export default defineConfig({
             // Outside a real Electron process the npm package exports a binary
             // path, and node_modules is externalised beyond vi.mock's reach.
             // A local double keeps the module mockable per test.
-            electron: path.resolve(__dirname, 'src/main/__tests__/__doubles__/electron.js'),
+            electron: path.resolve(import.meta.dirname, 'src/main/__tests__/__doubles__/electron.js'),
           },
         },
         test: {
