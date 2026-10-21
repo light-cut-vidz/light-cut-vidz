@@ -514,7 +514,20 @@ describe('GIF options', () => {
   }, 120000)
 })
 
-describe('stabilisation', () => {
+// The app only offers stabilisation where a trial run proves it works (some
+// macOS builds write motion data they cannot read back), so these tests only
+// make sense where it does. Linux's build must always pass the trial.
+const stabilizationUsable = await (async () => {
+  const { stabilizationWorks } = requireSrc('main/lib/hardware.js')
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lcv-stab-'))
+  try {
+    return await stabilizationWorks({ run: (a) => run(a), filtersText: await ffmpeg.query(['-filters']), workDir })
+  } finally {
+    fs.rmSync(workDir, { recursive: true, force: true })
+  }
+})()
+
+describe.skipIf(!stabilizationUsable)('stabilisation', () => {
   let shaky
   /** Mean absolute difference between consecutive frames: lower = steadier. */
   function jitter(file) {
@@ -596,8 +609,9 @@ describe('hardware detection against the real binary', () => {
   it('runs the stabilisation trial against this build', async () => {
     const { stabilizationWorks } = requireSrc('main/lib/hardware.js')
     const works = await stabilizationWorks({ run: (a) => run(a), filtersText: await ffmpeg.query(['-filters']), workDir: dir })
-    // Informational on macOS (see the CI note); Linux's build must pass.
+    // Elsewhere (macOS) the feature is simply hidden; Linux's build must pass.
     if (process.platform === 'linux') expect(works).toBe(true)
+    expect(stabilizationUsable).toBe(works)
   }, 60000)
 
   it('reports the stabilisation filters of this build', async () => {
