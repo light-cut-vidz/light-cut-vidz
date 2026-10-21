@@ -93,21 +93,25 @@ jobs:
 
       - name: Build app bundle (arm64)
         run: |
-          # Notarize only when a signing identity and Apple credentials exist;
-          # otherwise the app is ad-hoc signed below (users install it via Homebrew).
+          # Signing variables are exported only when a certificate exists: an
+          # *empty* CSC_LINK is read by electron-builder as a path ("not a file").
           EXTRA=""
-          if [ "$SIGNED" = "true" ] && [ -n "$APPLE_ID" ]; then EXTRA="-c.mac.notarize=true"; fi
+          if [ -n "$SECRET_CSC_LINK" ]; then
+            export CSC_LINK="$SECRET_CSC_LINK" CSC_KEY_PASSWORD="$SECRET_CSC_KEY_PASSWORD"
+            # Notarize only when Apple credentials exist as well.
+            if [ -n "$SECRET_APPLE_ID" ]; then
+              export APPLE_ID="$SECRET_APPLE_ID" APPLE_APP_SPECIFIC_PASSWORD="$SECRET_APPLE_APP_SPECIFIC_PASSWORD" APPLE_TEAM_ID="$SECRET_APPLE_TEAM_ID"
+              EXTRA="-c.mac.notarize=true"
+            fi
+          fi
           npm run vite:build && npx electron-builder --mac dir --arm64 --publish never $EXTRA
         env:
-          SIGNED: ${{ steps.csc.outputs.enabled }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.csc.outputs.enabled }}
-          # Passed straight to the step that needs them (empty when unset), instead
-          # of being interpolated into a shell script that writes GITHUB_ENV.
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SECRET_CSC_LINK: ${{ secrets.CSC_LINK }}
+          SECRET_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          SECRET_APPLE_ID: ${{ secrets.APPLE_ID }}
+          SECRET_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          SECRET_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Ad-hoc sign app (no Apple Developer certificate)
         if: steps.csc.outputs.enabled == 'false'
