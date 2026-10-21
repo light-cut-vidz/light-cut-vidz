@@ -5,6 +5,21 @@ La version anglaise est dans [CHANGELOG.md](CHANGELOG.md) — gardez les deux sy
 
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [1.0.3] - 2026-10-21
+
+### Ajouté
+- **Qualité d'export** : choisissez Haute, Équilibrée ou Petit fichier, et plafonnez la résolution (de la 4K à 360p — une vidéo plus petite n'est jamais agrandie). Vos choix sont mémorisés.
+- **File d'export** : *Ajouter à la file* dans la fenêtre d'export, puis continuez à éditer. Les exports s'enchaînent ; un bouton affiche leur progression, permet d'en annuler un et d'ouvrir le résultat dans son dossier.
+- **Fichiers récents** : l'écran d'accueil et *Fichier → Ouvrir récent* listent vos dernières vidéos et vos derniers projets.
+- **Thème clair** : *Affichage → Thème* propose Suivre le système, Clair et Sombre ; le choix est mémorisé.
+- **Stabilisation vidéo** (Légère, Normale, Forte) dans le panneau latéral. Elle analyse d'abord les images, puis les lisse à l'export.
+- **Accélération matérielle** de l'export H.264 quand l'ordinateur la prend en charge (Apple VideoToolbox sur Mac). Elle n'est proposée que si elle fonctionne vraiment, et repasse en logiciel en cas d'échec. Sous Linux, le FFmpeg embarqué n'a pas d'encodeur GPU : définissez `LIGHTCUTVIDZ_FFMPEG` avec le chemin d'un FFmpeg système pour utiliser NVENC, VAAPI ou Quick Sync.
+- **GIF optimisé** : choisissez la largeur et le nombre d'images par seconde ; une palette plus fine et le codage des seules zones modifiées réduisent nettement la taille des fichiers.
+
+### Modifié
+- Fermer la fenêtre pendant des exports demande maintenant confirmation.
+- La carte du format GIF n'affiche plus de largeur fixe.
+
 ## [1.0.2] - 2026-10-21
 
 ### Ajouté

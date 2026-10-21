@@ -5,6 +5,21 @@ The French version is in [CHANGELOG.fr.md](CHANGELOG.fr.md) — keep both in ste
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.3] - 2026-10-21
+
+### Added
+- **Export quality**: choose High, Balanced or Small file, and cap the resolution (4K down to 360p — a smaller video is never enlarged). Your choices are remembered.
+- **Export queue**: *Add to queue* in the export window, then keep editing. Exports run one after the other; a button on screen shows their progress, lets you cancel one and open the result in its folder.
+- **Recent files**: the home screen and *File → Open recent* list your latest videos and projects.
+- **Light theme**: *View → Theme* offers Follow the system, Light and Dark; the choice is remembered.
+- **Video stabilization** (Light, Normal, Strong) in the side panel. It analyses the footage first, then smooths it when you export.
+- **Hardware acceleration** for H.264 export where the computer supports it (Apple VideoToolbox on a Mac). It is only offered when it really works, and falls back to software if it fails. On Linux the bundled FFmpeg has no GPU encoder: set `LIGHTCUTVIDZ_FFMPEG` to a system FFmpeg path to use NVENC, VAAPI or Quick Sync.
+- **Optimized GIF**: choose the width and the frame rate; smarter palette and frame differences make files noticeably smaller.
+
+### Changed
+- Closing the window while exports are running now asks first.
+- The GIF format card no longer states a fixed width.
+
 ## [1.0.2] - 2026-10-21
 
 ### Added

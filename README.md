@@ -23,13 +23,16 @@ Trim, crop, filter and subtitle your videos, then export them — locally, with 
 - **Geometry** — 90° rotation, free straightening (±45°) and horizontal/vertical perspective correction
 - **Filters** — 20 colour treatments (grayscale, sepia, vintage, noir, cold/warm, mirror, edges…), previewed live on the current frame
 - **Subtitles** — import an `.srt` and burn it in, with 7 animation styles (word pop, bounce, highlight, rainbow, typewriter, sentence fade/slide) and full control over font, size, colours, outline, background and position
+- **Stabilization** — light, normal or strong, applied at export (two-pass `vidstab`)
 - **Mute** — toggle audio on/off
 - **Projects** — save your edits to a `.lcvproj` file (`Ctrl/Cmd+S`) and reopen them later (`Ctrl/Cmd+Shift+O`); closing the window with unsaved edits asks first
 - **What's new** — the changelog is shown in the app (Help → What's new, or click the version number), automatically after an update, and in the update dialog itself
 - **Undo / Redo** — full history for every edit via `Ctrl/Cmd+Z` / `Ctrl+Y`; a whole drag or slider scrub counts as one step
-- **Export** — MP4, MOV, WebM, AVI, GIF in a single encoding pass, with a progress bar and a **Stop** button
+- **Export** — MP4, MOV, WebM, AVI, GIF in a single encoding pass, with a progress bar and a **Stop** button; choose the **quality** and the **resolution**, optimise **GIFs** (width, frame rate), use **hardware acceleration** when available, or **queue** several exports
 - **Full screen** — `F11` / `Ctrl+Cmd+F`, exit with `Escape`
 - **Bilingual** — English and French (follows your system language on first launch), switchable from the Language menu
+- **Recent files** — your latest projects and videos on the home screen and in *File → Open recent*
+- **Light & dark themes** — *View → Theme* (follow the system, light or dark)
 - **Open with…** — pass a video on the command line or use *Open with LightCutVidz* from your file manager
 
 ---
@@ -197,6 +200,14 @@ Click **Export** in the toolbar.
 3. Click **Export**, choose the output file location
 4. A progress bar tracks the encoding. **Stop export** cancels it; the dialog cannot be closed while it runs.
 
+**Quality** — *High*, *Balanced* or *Small file* (x264 CRF 18 / 22 / 28, VP9 CRF 24 / 30 / 37; audio 256 / 192 / 128 kbit/s). **Resolution** caps the height of the picture (4K … 360p) and never enlarges a smaller video. For a **GIF**, pick the width and the frame rate instead; the quality then sets the palette (256 or 128 colours) and the dithering. Your choices are remembered.
+
+**Hardware acceleration** is offered for MP4, MOV and AVI when this computer can really do it — it is tested with a tiny encode, not assumed. The bundled FFmpeg supports Apple VideoToolbox on macOS; its Linux build has no GPU encoder. To use NVENC, VAAPI or Quick Sync on Linux, run the app with `LIGHTCUTVIDZ_FFMPEG=/usr/bin/ffmpeg` (a system FFmpeg built with them). If a hardware encode fails, the export is retried in software.
+
+**Stabilization** (side panel) first analyses the kept footage, then smooths it during the export: it adds one pass and crops the picture a little to hide the borders.
+
+**Queue** — *Add to queue* asks for the file and returns to the editor at once. Exports run one at a time; the **Exports** button (top right) lists them, cancels one, or shows a finished file in its folder. Closing the window while exports are running asks first.
+
 The save dialog only offers the format you chose; the matching extension is added if you leave it out. Opening another video asks for confirmation when you have unsaved edits.
 
 ---
@@ -334,6 +345,9 @@ light-cut-vidz/
 │   │   ├── index.js                   # IPC handlers, FFmpeg export pipeline, window & protocol setup
 │   │   ├── filters.js                 # filter id → ffmpeg filter string
 │   │   ├── lib/
+│   │   │   ├── exportQueue.js         # sequential export queue (status, progress, cancel)
+│   │   │   ├── hardware.js            # probes real hardware encoders and the stabilisation filters
+│   │   │   ├── store.js / recent.js / settings.js   # persisted settings and the recent list
 │   │   │   ├── exportRun.js           # the ffmpeg passes of an export (single graph, optional subtitle pass)
 │   │   │   ├── exportPlan.js          # option validation, filter graph, encoder settings, progress maths
 │   │   │   ├── mediaProtocol.js       # lcv-file:// handler: byte ranges, allow-list, CSP
