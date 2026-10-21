@@ -35,6 +35,39 @@ fetch() {
   fi
 }
 
+# sha256 <file> — hex digest, with whichever tool the system has
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
+  else return 1
+  fi
+}
+
+# verify_download <file> <asset name> — checks <file> against the release's
+# SHA256SUMS. A release that publishes none is accepted with a warning, so older
+# releases stay installable; a listed file that does not match is fatal.
+verify_download() {
+  sums_url="$(latest_asset_named SHA256SUMS)"
+  if [ -z "$sums_url" ]; then
+    log "Warning: this release publishes no SHA256SUMS — the download cannot be verified."
+    return 0
+  fi
+  sums="$(fetch "$sums_url")" || die "could not download SHA256SUMS"
+  expected="$(printf '%s\n' "$sums" | awk -v n="$2" '{ f=$2; sub(/^\*/, "", f) } f == n { print $1 }' | head -1)"
+  [ -n "$expected" ] || die "SHA256SUMS does not list $2"
+  actual="$(sha256 "$1")" || die "no sha256sum or shasum available to verify the download"
+  [ "$actual" = "$expected" ] || die "checksum mismatch for $2 (expected $expected, got $actual)"
+  log "Checksum verified."
+}
+
+# latest_asset_named <exact file name> — download URL of that asset, or nothing
+latest_asset_named() {
+  fetch "https://api.github.com/repos/$REPO/releases/latest" \
+    | grep -o "\"browser_download_url\": *\"[^\"]*/$1\"" \
+    | head -1 \
+    | sed 's/.*"\(https[^"]*\)"/\1/'
+}
+
 # latest_asset <extension> — download URL of the first matching asset of the latest release
 latest_asset() {
   fetch "https://api.github.com/repos/$REPO/releases/latest" \
@@ -81,12 +114,15 @@ install_macos() {
 install_deb() {
   url="$(latest_asset deb)"
   [ -n "$url" ] || die "No .deb in the latest release — see https://github.com/$REPO/releases"
-  tmp="$(mktemp -d)/$(basename "$url")"
+  tmpdir="$(mktemp -d)"
+  # `set -e` would otherwise leave the download behind when apt-get fails.
+  trap 'rm -rf "$tmpdir"' EXIT
+  tmp="$tmpdir/$(basename "$url")"
   log "Downloading $(basename "$url")…"
   fetch "$url" "$tmp"
+  verify_download "$tmp" "$(basename "$url")"
   log "Installing the .deb package (sudo required)…"
   sudo apt-get install -y "$tmp"
-  rm -rf "$(dirname "$tmp")"
   log "Done. Launch $APP_NAME from your applications menu."
 }
 
@@ -102,7 +138,14 @@ install_appimage() {
   target="$bin_dir/$APP_SLUG.AppImage"
   log "Downloading $(basename "$url")…"
   fetch "$url" "$target"
+  verify_download "$target" "$(basename "$url")" || { rm -f "$target"; exit 1; }
   chmod +x "$target"
+
+  # AppImages need FUSE 2 to mount themselves; recent distributions no longer
+  # install it by default.
+  if ! (ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2'); then
+    log "Note: libfuse2 was not found. If $APP_NAME does not start, install it (e.g. 'sudo apt install libfuse2', 'sudo dnf install fuse-libs') or run: $target --appimage-extract-and-run"
+  fi
 
   fetch "$ICON_URL" "$icon_dir/$APP_SLUG.png" 2>/dev/null || true
 
@@ -134,6 +177,12 @@ case "$(uname -s)" in
     install_macos
     ;;
   Linux)
+    # Only x86_64 builds are published: on ARM the package would install and then
+    # fail to run.
+    case "$(uname -m)" in
+      x86_64|amd64) ;;
+      *) die "unsupported architecture: $(uname -m). Only x86_64 builds are published — see https://github.com/$REPO/releases" ;;
+    esac
     install_runtime_deps
     if command -v apt-get >/dev/null 2>&1; then
       install_deb

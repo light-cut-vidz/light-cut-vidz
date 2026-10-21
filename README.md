@@ -15,8 +15,8 @@ Trim, crop, filter and subtitle your videos, then export them — locally, with 
 ## Features
 
 - **Open video** — drag & drop or `Ctrl/Cmd+O` (MP4, MOV, AVI, MKV, WebM, FLV, M4V)
-- **Playback** — play/pause, seekbar with drag support; playback skips over cut zones
-- **Speed control** — 0.25× to 4× with presets and fine-grained slider
+- **Playback** — play/pause (`Space`), seekbar with drag support; playback skips over cut zones, frame-accurately
+- **Speed control** — 0.25× to 4×, from presets or a slider across them
 - **Multi-segment trim** — draw cut zones on the timeline, adjust start/end with precise time inputs, delete individually
 - **Timeline filmstrip** — thumbnail strip extracted from the video for visual reference
 - **Crop** — draw a selection overlay, confirm with Enter or Apply; a red frame shows the active crop zone
@@ -24,10 +24,13 @@ Trim, crop, filter and subtitle your videos, then export them — locally, with 
 - **Filters** — 20 colour treatments (grayscale, sepia, vintage, noir, cold/warm, mirror, edges…), previewed live on the current frame
 - **Subtitles** — import an `.srt` and burn it in, with 7 animation styles (word pop, bounce, highlight, rainbow, typewriter, sentence fade/slide) and full control over font, size, colours, outline, background and position
 - **Mute** — toggle audio on/off
+- **Projects** — save your edits to a `.lcvproj` file (`Ctrl/Cmd+S`) and reopen them later (`Ctrl/Cmd+Shift+O`); closing the window with unsaved edits asks first
+- **What's new** — the changelog is shown in the app (Help → What's new, or click the version number), automatically after an update, and in the update dialog itself
 - **Undo / Redo** — full history for every edit via `Ctrl/Cmd+Z` / `Ctrl+Y`; a whole drag or slider scrub counts as one step
-- **Export** — MP4, MOV, WebM, AVI, GIF with real-time progress bar
+- **Export** — MP4, MOV, WebM, AVI, GIF in a single encoding pass, with a progress bar and a **Stop** button
 - **Full screen** — `F11` / `Ctrl+Cmd+F`, exit with `Escape`
-- **Bilingual** — English and French, switchable from the Language menu
+- **Bilingual** — English and French (follows your system language on first launch), switchable from the Language menu
+- **Open with…** — pass a video on the command line or use *Open with LightCutVidz* from your file manager
 
 ---
 
@@ -47,7 +50,9 @@ curl -fsSL https://raw.githubusercontent.com/light-cut-vidz/light-cut-vidz/main/
 
 Re-run the exact same command to upgrade to the latest release.
 
-> Apple Silicon only (M1/M2/M3/M4). The last version supporting Intel Macs is [v1.1.0](https://github.com/light-cut-vidz/light-cut-vidz/releases/tag/v1.1.0).
+> Apple Silicon only (M1/M2/M3/M4). Linux builds are x86_64 only.
+
+Downloads are checked against the release's `SHA256SUMS` when it is published. The in-app updater **requires** it and refuses anything it cannot verify.
 
 ### Manual install
 
@@ -86,13 +91,18 @@ On launch, you land on the home screen. Two options:
 
 Supported formats: MP4, MOV, AVI, MKV, WebM, FLV, M4V
 
-> When a video is opened, LightCutVidz automatically transcodes it to WebM for preview. This takes a few seconds depending on the file size — it is required because Electron does not ship with H.264/AAC codecs.
+> H.264/AAC files (the MP4/MOV from phones and cameras) open instantly and are played as they are. Other formats (HEVC, AVI, FLV, 10-bit video…) are first converted to a temporary WebM preview — a progress bar is shown and you can cancel. The preview is only for display; the export always starts from your original file.
 
 ### 2. Playback controls
 
 | Action | How |
 |--------|-----|
 | Play / Pause | Click the play button or press `Space` |
+| Seek ±1 s (±5 s with `Shift`) | `←` / `→` |
+| Seek ±5 s | `J` / `L` |
+| Previous / next frame | `,` / `.` |
+| Play / Pause (alternative) | `K` |
+| Delete the selected cut | `Delete` / `Backspace` |
 | Seek | Click or drag anywhere on the seekbar |
 | Full screen | `F11` (Linux) / `Ctrl+Cmd+F` (macOS) or menu View → Toggle Full Screen |
 | Exit full screen | `Escape` |
@@ -103,7 +113,7 @@ In the toolbar, click a speed preset or use the slider:
 
 `0.25×` · `0.5×` · `0.75×` · `1×` · `1.25×` · `1.5×` · `2×` · `3×` · `4×`
 
-The speed is applied both during playback and at export (via FFmpeg `setpts` + `atempo` filters).
+The speed is applied both during playback and at export (via FFmpeg `setpts` + `atempo` filters). Subtitles follow it.
 
 ### 4. Trim — Remove parts of the video
 
@@ -121,6 +131,8 @@ The timeline shows the full video duration. **Red zones = parts that will be rem
 
 **Clear all cuts:** click **Clear all cuts** in the timeline bar.
 
+A zone you are drawing is previewed before you release the mouse.
+
 ### 5. Crop
 
 1. Click **Crop** in the toolbar — a selection overlay appears on the video
@@ -130,6 +142,8 @@ The timeline shows the full video duration. **Red zones = parts that will be rem
 5. A thin red frame appears on the video indicating the active crop zone
 
 To reset the crop, click **Reset crop** in the toolbar.
+
+The crop is drawn on the original, unrotated frame (the picture is shown untransformed while you edit it) and is applied **before** rotation and perspective at export.
 
 ### 6. Geometry, filters and subtitles
 
@@ -157,9 +171,15 @@ Every edit is undoable — speed, mute, crop, cuts, rotation, perspective, filte
 
 Or use the **Edit** menu.
 
+Inside a text field, `Ctrl/Cmd+Z` undoes the typing, not the timeline.
+
 A continuous gesture — dragging a cut, resizing the crop box, scrubbing a slider — is recorded as a single history entry, so one `Ctrl+Z` undoes the whole movement.
 
-### 9. Export
+### 9. Projects
+
+**File → Save project…** (`Ctrl/Cmd+S`) writes the video's path and every edit (cuts, crop, geometry, filter, subtitles, speed, mute) to a `.lcvproj` file; **Open project…** restores them. The video itself is not copied: if it has moved, you are told. A project file is validated on opening, so a damaged or foreign file cannot do anything but show an error.
+
+### 10. Export
 
 Click **Export** in the toolbar.
 
@@ -175,7 +195,9 @@ Click **Export** in the toolbar.
 | GIF | Animated image (480px wide, 15 fps) |
 
 3. Click **Export**, choose the output file location
-4. A progress bar tracks the encoding — do not close the app during export
+4. A progress bar tracks the encoding. **Stop export** cancels it; the dialog cannot be closed while it runs.
+
+The save dialog only offers the format you chose; the matching extension is added if you leave it out. Opening another video asks for confirmation when you have unsaved edits.
 
 ---
 
@@ -215,7 +237,7 @@ update-desktop-database ~/.local/share/applications
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 22.22+ or 24.15+ (required by Vitest 5, jsdom 30 and Electron 45's tooling)
 - npm
 
 ### Setup
@@ -254,8 +276,9 @@ Outputs to `dist-app/`:
 | `npm run test` | Run unit tests |
 | `npm run test:watch` | Watch mode |
 | `npm run test:coverage` | Tests with coverage report |
-| `npm run lint` | ESLint on renderer source |
-| `npm run typecheck` | TypeScript type check (no emit) |
+| `npm run test:e2e` | Build, then launch the real app under `xvfb` and check seeking, security, and a full export (Linux) |
+| `npm run lint` | ESLint on `src/` and `e2e/` |
+| `npm run typecheck` | TypeScript check of the renderer, and of the main/preload JavaScript (`checkJs`) |
 
 ---
 
@@ -265,26 +288,40 @@ Every push to `main` or `develop` runs the CI pipeline automatically:
 
 1. **Lint** — ESLint
 2. **Type check** — `tsc --noEmit`
-3. **Tests** — Vitest with coverage artifact
-4. **Build** — Vite frontend build artifact
+3. **Tests** — Vitest with coverage artifact, including integration tests that drive the real bundled FFmpeg (macOS runs as an informational job)
+4. **End-to-end** — the real Electron app under a virtual display (`npm run test:e2e`)
+5. **Build** — Vite frontend build artifact
 
 ### Release a new version
 
+1. Add a section for the version to **both** `CHANGELOG.md` and `CHANGELOG.fr.md` (same versions, same sections — a test checks it) and set the same version in `package.json`:
+
+   ```markdown
+   ## [1.0.3] - 2026-11-02
+   ### Added
+   - …
+   ```
+
+2. Tag and push:
+
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.3
+git push origin v1.0.3
 ```
+
+The changelog sections are what users see in the update dialog (read from the changelog at the new tag, in their language), in *Help → What's new*, and as the GitHub release notes. The release workflow fails if either changelog has no section for the tag.
 
 The release workflow triggers on the tag and, in order:
 
-1. creates a draft GitHub release;
-2. builds the macOS archive on a macOS runner and the AppImage + deb on a Linux runner;
-3. uploads every artifact and marks the release as latest;
-4. recomputes the archive's SHA-256 and pushes an updated cask to
+1. runs lint, type check and the tests — a failure stops the release;
+2. creates a draft GitHub release whose notes are the tag's section of both changelogs (it fails without them);
+3. builds the macOS archive on a macOS runner and the AppImage + deb on a Linux runner;
+4. publishes a `SHA256SUMS` file for all three artifacts, then marks the release as latest;
+5. recomputes the archive's SHA-256 and pushes an updated cask to
    [light-cut-vidz/homebrew-tap](https://github.com/light-cut-vidz/homebrew-tap),
    which is what `brew install --cask light-cut-vidz/tap/light-cut-vidz` installs from.
 
-Step 4 is skipped when the `HOMEBREW_TAP_TOKEN` secret is absent.
+The tap update needs the `HOMEBREW_TAP_SSH_KEY` secret (a deploy key with write access to the tap); without it that workflow fails — it does not skip itself.
 
 ---
 
@@ -297,6 +334,13 @@ light-cut-vidz/
 │   │   ├── index.js                   # IPC handlers, FFmpeg export pipeline, window & protocol setup
 │   │   ├── filters.js                 # filter id → ffmpeg filter string
 │   │   ├── lib/
+│   │   │   ├── exportRun.js           # the ffmpeg passes of an export (single graph, optional subtitle pass)
+│   │   │   ├── exportPlan.js          # option validation, filter graph, encoder settings, progress maths
+│   │   │   ├── mediaProtocol.js       # lcv-file:// handler: byte ranges, allow-list, CSP
+│   │   │   ├── preview.js             # can this file be played without transcoding?
+│   │   │   ├── decodeText.js          # SRT decoding (UTF-8/16, Windows-1252)
+│   │   │   ├── ffmpeg.js              # spawn wrapper: progress, cancellation, stream info from `ffmpeg -i`
+│   │   │   ├── project.js             # .lcvproj validation
 │   │   │   ├── videoFilters.js        # crop / rotate / perspective / speed filter chain
 │   │   │   ├── subtitles.js           # cue → .ass generation, cut-timeline remapping
 │   │   │   ├── updater.js             # per-install-method update flows (Homebrew, deb, AppImage)
@@ -307,7 +351,7 @@ light-cut-vidz/
 │   │   │   ├── atempo.js              # atempo chaining outside [0.5, 2]
 │   │   │   ├── asar.js                # unpacked-binary path fix
 │   │   │   └── escapeHtml.js
-│   │   └── __tests__/
+│   │   └── __tests__/                 # unit tests + ffmpeg.integration.test.js (real ffmpeg, no mocks)
 │   ├── preload/
 │   │   └── index.js                   # contextBridge — the renderer's only door to the main process
 │   └── renderer/
@@ -318,10 +362,16 @@ light-cut-vidz/
 │           │                          # GeometrySettings, SubtitlesPanel, SubtitleOverlay,
 │           │                          # ExportModal, DropZone, Toast, icons
 │           ├── hooks/
-│           │   └── useHistory.ts       # unified undo/redo, with gesture coalescing
+│           │   ├── useHistory.ts       # unified undo/redo, with gesture coalescing
+│           │   └── useVideoRect.ts     # where the <video> sits (layout metrics, rotation-proof)
 │           ├── messages/               # en.ts / fr.ts
 │           ├── utils/                  # time, timeline, srt, subtitles, filters
 │           └── __tests__/
+├── src/shared/                        # tables used by both processes (filters, palette, extensions)
+├── e2e/smoke.js                       # end-to-end test of the real app (npm run test:e2e)
+├── CHANGELOG.md / CHANGELOG.fr.md     # release notes, English and French (shown in the app and in updates)
+├── scripts/release-notes.js           # builds the GitHub release notes from the changelogs
+├── THIRD_PARTY_NOTICES.md             # FFmpeg (GPLv3) and other bundled software
 ├── html/                              # GitHub Pages landing page
 ├── install.sh                         # one-line installer (Homebrew on macOS, deb/AppImage on Linux)
 ├── .github/
@@ -329,10 +379,11 @@ light-cut-vidz/
 │       ├── ci.yml                     # lint + typecheck + tests + vite build
 │       ├── release.yml                # build, publish, update the Homebrew tap
 │       └── pages.yml                  # deploy html/ to GitHub Pages
-├── vite.config.ts
+├── vite.config.mts
 ├── vitest.config.ts
-├── tsconfig.json
-├── eslint.config.js
+├── tsconfig.json                      # renderer
+├── tsconfig.main.json                 # main + preload (checkJs)
+├── eslint.config.mjs
 └── package.json
 ```
 
@@ -345,16 +396,15 @@ light-cut-vidz/
 | Desktop shell | Electron 41 |
 | UI | React 19 + TypeScript |
 | Bundler | Vite 8 |
-| Video processing | FFmpeg (bundled via `ffmpeg-static` + `@ffprobe-installer/ffprobe`) |
-| FFmpeg Node API | `fluent-ffmpeg` |
+| Video processing | FFmpeg (bundled via `ffmpeg-static`), driven through `child_process.spawn` with argument arrays — no wrapper library, no separate ffprobe |
 | Packaging | `electron-builder` |
 | Tests | Vitest + Testing Library |
 | Linter | ESLint (flat config) |
 
 ### Architecture notes
 
-**Why WebM for preview?**
-Electron ships without patented codecs (H.264, AAC). When a video is loaded, the main process transcodes it to WebM (VP9 + Opus) using the bundled FFmpeg before handing it to the HTML5 player.
+**Preview: direct play, WebM otherwise**
+Electron 41 plays H.264/AAC (and VP8/VP9/AV1) natively, so a compatible MP4/MOV/WebM is handed to the HTML5 player untouched (`lib/preview.js` decides from the stream info `ffmpeg -i` prints). Anything else — HEVC, AVI, FLV, 10-bit or 4:4:4 H.264 — is transcoded to VP9 + Opus WebM first. The preview is display-only: crop coordinates are in the preview's pixels, which is why it is never down-scaled.
 
 **Why `asarUnpack`?**
 Native binaries cannot be executed from inside an `.asar` archive. The `asarUnpack` field in `package.json` and the `fixAsarPath()` helper in the main process ensure FFmpeg is always accessible on the filesystem.
@@ -363,7 +413,12 @@ Native binaries cannot be executed from inside an `.asar` archive. The `asarUnpa
 All editable state (speed, mute, crop, cuts, geometry, filter, subtitles) is managed by a single `useEditorHistory` hook. Every setter snapshots the full previous state onto a stack, so Undo/Redo work uniformly across all edit types with no extra code per feature. Continuous gestures use `setLive`, which snapshots once at the start and edits in place until `endGesture()` — otherwise a drag would push one entry per pointer event.
 
 **Why a custom `lcv-file://` scheme?**
-The renderer has to read video files off disk. Serving them over `file://` requires `webSecurity: false`, which drops the same-origin policy for the entire renderer. Instead, the main process registers a privileged scheme (streaming enabled, so `<video>` can issue range requests and seek) and serves both the app's own HTML and the media through it — same origin, web security intact.
+The renderer has to read video files off disk. Serving them over `file://` requires `webSecurity: false`, which drops the same-origin policy for the entire renderer. Instead, the main process registers a privileged scheme and serves both the app's own bundle and the media through it — same origin, web security intact.
+
+The handler (`lib/mediaProtocol.js`) answers byte-range requests with a real `206` + `Content-Range` — `net.fetch('file://…')` does not, and without them `<video>` reports nothing seekable and every seek snaps back to 0. It only serves the app bundle and video files the user actually opened (dialog, drop, menu, command line); anything else is `403`. The page is delivered with a strict Content-Security-Policy, and the scheme does **not** bypass it. The window cannot navigate away and cannot open new windows.
+
+**Export pipeline**
+One FFmpeg invocation per export: every kept segment is `trim`med, `concat`enated, passed through crop → rotation → perspective → colour → speed, and encoded once straight to the chosen format. Subtitles need the dimensions of the finished frame, so that case writes a high-quality intermediate and burns them in a second pass. The renderer's options are validated in the main process (numbers, colours, font names) before they reach a filter graph or an `.ass` file, and only files picked through the open/save dialogs can be read or written.
 
 **Why `-pix_fmt yuv420p`?**
 Given an odd frame size, libx264 silently switches to `yuv444p` / High 4:4:4 Predictive, which QuickTime, iOS and most hardware decoders cannot play. The export pipeline pins the pixel format and ends every filter chain on an even-dimensions guard.
@@ -372,4 +427,6 @@ Given an odd frame size, libx264 silently switches to `yuv444p` / High 4:4:4 Pre
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+LightCutVidz is MIT — see [LICENSE](LICENSE).
+
+The packaged app bundles **FFmpeg, which is licensed under the GPL v3** (the build used enables GPL components such as x264 and x265). Sources and licenses of everything bundled are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

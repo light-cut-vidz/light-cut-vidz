@@ -5,20 +5,56 @@ on:
     tags:
       - 'v*.*.*'
 
+# Read-only by default; the jobs that publish ask for write access themselves.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  # A tag used to publish whatever it pointed at, tested or not.
+  verify:
+    name: Lint, type check and test
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Install fonts (subtitle rendering tests)
+        run: sudo apt-get update && sudo apt-get install -y fonts-dejavu-core
+
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
   create-release:
     name: Create GitHub Release
+    needs: [verify]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # The notes are the tag's section of CHANGELOG.md and CHANGELOG.fr.md. The
+      # script fails when either has none: no release without notes in both languages.
+      - name: Build release notes from the changelogs
+        run: node scripts/release-notes.js "${{ github.ref_name }}" > release-notes.md
+
       - name: Create draft release
         run: |
           gh release create "${{ github.ref_name }}" \
             --draft \
             --title "${{ github.ref_name }}" \
-            --notes "Release ${{ github.ref_name }}" \
+            --notes-file release-notes.md \
             --repo "${{ github.repository }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -27,19 +63,22 @@ jobs:
     name: Build macOS archive (arm64)
     needs: [create-release]
     runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Sync version from tag
         run: |
-          VERSION_NUM="${GITHUB_REF_NAME#v}"
-          npm version "$VERSION_NUM" --no-git-tag-version || true
+          # `npm version` refuses when the version is unchanged and `|| true` hid
+          # every other failure too; `pkg set` is idempotent and fails for real.
+          npm pkg set version="${GITHUB_REF_NAME#v}"
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
@@ -52,19 +91,23 @@ jobs:
         env:
           VAL: ${{ secrets.CSC_LINK }}
 
-      - name: Configure code signing
-        if: steps.csc.outputs.enabled == 'true'
-        run: |
-          echo "CSC_LINK=${{ secrets.CSC_LINK }}" >> $GITHUB_ENV
-          echo "CSC_KEY_PASSWORD=${{ secrets.CSC_KEY_PASSWORD }}" >> $GITHUB_ENV
-          echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> $GITHUB_ENV
-          echo "APPLE_APP_SPECIFIC_PASSWORD=${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" >> $GITHUB_ENV
-          echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> $GITHUB_ENV
-
       - name: Build app bundle (arm64)
-        run: npm run vite:build && npx electron-builder --mac dir --arm64 --publish never
+        run: |
+          # Notarize only when a signing identity and Apple credentials exist;
+          # otherwise the app is ad-hoc signed below (users install it via Homebrew).
+          EXTRA=""
+          if [ "$SIGNED" = "true" ] && [ -n "$APPLE_ID" ]; then EXTRA="-c.mac.notarize=true"; fi
+          npm run vite:build && npx electron-builder --mac dir --arm64 --publish never $EXTRA
         env:
+          SIGNED: ${{ steps.csc.outputs.enabled }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.csc.outputs.enabled }}
+          # Passed straight to the step that needs them (empty when unset), instead
+          # of being interpolated into a shell script that writes GITHUB_ENV.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Ad-hoc sign app (no Apple Developer certificate)
         if: steps.csc.outputs.enabled == 'false'
@@ -86,19 +129,22 @@ jobs:
     name: Build Linux AppImage + deb
     needs: [create-release]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Sync version from tag
         run: |
-          VERSION_NUM="${GITHUB_REF_NAME#v}"
-          npm version "$VERSION_NUM" --no-git-tag-version || true
+          # `npm version` refuses when the version is unchanged and `|| true` hid
+          # every other failure too; `pkg set` is idempotent and fails for real.
+          npm pkg set version="${GITHUB_REF_NAME#v}"
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
@@ -123,7 +169,32 @@ jobs:
     name: Publish GitHub Release
     needs: [release-mac, release-linux]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write      # build provenance attestation
+      attestations: write
     steps:
+      # The in-app updater and install.sh refuse a download they cannot verify
+      # against this file.
+      - name: Publish SHA256SUMS
+        run: |
+          set -euo pipefail
+          mkdir assets
+          gh release download "${{ github.ref_name }}" --repo "${{ github.repository }}" --dir assets \
+            --pattern 'LightCutVidz-linux.AppImage' --pattern 'LightCutVidz-linux.deb' --pattern 'LightCutVidz-mac-arm64.zip'
+          (cd assets && sha256sum LightCutVidz-linux.AppImage LightCutVidz-linux.deb LightCutVidz-mac-arm64.zip > SHA256SUMS && cat SHA256SUMS)
+          gh release upload "${{ github.ref_name }}" assets/SHA256SUMS --clobber --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # A signed statement, verifiable with `gh attestation verify <file> -R <repo>`,
+      # that these exact files were built by this workflow from this tag. Unlike
+      # SHA256SUMS it does not live next to the files it vouches for.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: assets/LightCutVidz-*
+
       - name: Mark release as latest
         run: gh release edit "${{ github.ref_name }}" --draft=false --latest --repo "${{ github.repository }}"
         env:
