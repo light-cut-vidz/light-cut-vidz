@@ -52,7 +52,7 @@ const hasStabilization = (filtersText) => /\bvidstabdetect\b/.test(filtersText) 
 async function stabilizationWorks({ run, filtersText, workDir }) {
   if (!hasStabilization(filtersText)) return false
   const trf = escapeForFfmpegFilter(path.join(workDir, 'probe.trf'))
-  const source = ['-f', 'lavfi', '-i', 'testsrc=s=320x240:d=1:r=10']
+  const source = ['-f', 'lavfi', '-i', 'testsrc2=s=320x240:d=2:r=25']
   try {
     await run([...source, '-vf', `vidstabdetect=result=${trf}`, '-f', 'null', '-'])
     await run([...source, '-vf', `vidstabtransform=input=${trf}`, '-f', 'null', '-'])
