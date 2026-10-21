@@ -3,7 +3,9 @@
 // a tiny encode, because being compiled in does not mean a GPU and driver are
 // there to back it.
 
+const path = require('path')
 const { hardwareProfile } = require('./exportPlan')
+const { escapeForFfmpegFilter } = require('./subtitles')
 
 const CANDIDATES = {
   darwin: ['videotoolbox'],
@@ -38,4 +40,26 @@ async function detectHardware({ run, platform }) {
 /** `ffmpeg -filters` lists both stabilisation filters. */
 const hasStabilization = (filtersText) => /\bvidstabdetect\b/.test(filtersText) && /\bvidstabtransform\b/.test(filtersText)
 
-module.exports = { detectHardware, hasStabilization, CANDIDATES }
+/**
+ * Whether stabilisation really works with this build: having the filters is not
+ * enough (some builds write motion data they cannot read back — "Cannot parse
+ * localmotion!"), so both passes are tried on a tiny synthetic clip.
+ * @param {object} deps
+ * @param {(args: string[]) => Promise<void>} deps.run   resolves when ffmpeg exits 0
+ * @param {string} deps.filtersText  output of `ffmpeg -filters`
+ * @param {string} deps.workDir      scratch directory for the motion file
+ */
+async function stabilizationWorks({ run, filtersText, workDir }) {
+  if (!hasStabilization(filtersText)) return false
+  const trf = escapeForFfmpegFilter(path.join(workDir, 'probe.trf'))
+  const source = ['-f', 'lavfi', '-i', 'testsrc=s=320x240:d=1:r=10']
+  try {
+    await run([...source, '-vf', `vidstabdetect=result=${trf}`, '-f', 'null', '-'])
+    await run([...source, '-vf', `vidstabtransform=input=${trf}`, '-f', 'null', '-'])
+    return true
+  } catch {
+    return false
+  }
+}
+
+module.exports = { detectHardware, hasStabilization, stabilizationWorks, CANDIDATES }

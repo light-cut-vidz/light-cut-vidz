@@ -19,10 +19,11 @@ Trim, crop, filter and subtitle your videos, then export them — locally, with 
 - **Speed control** — 0.25× to 4×, from presets or a slider across them
 - **Multi-segment trim** — draw cut zones on the timeline, adjust start/end with precise time inputs, delete individually
 - **Timeline filmstrip** — thumbnail strip extracted from the video for visual reference
-- **Crop** — draw a selection overlay, confirm with Enter or Apply; a red frame shows the active crop zone
+- **Crop** — draw a selection overlay, confirm with Enter or Apply; a red frame shows the active crop zone; lock it to a social ratio (9:16, 4:5, 1:1, 16:9)
 - **Geometry** — 90° rotation, free straightening (±45°) and horizontal/vertical perspective correction
 - **Filters** — 20 colour treatments (grayscale, sepia, vintage, noir, cold/warm, mirror, edges…), previewed live on the current frame
 - **Subtitles** — import an `.srt` and burn it in, with 7 animation styles (word pop, bounce, highlight, rainbow, typewriter, sentence fade/slide) and full control over font, size, colours, outline, background and position
+- **Social formats** — export as 9:16 (TikTok, Reels, Shorts), 4:5 (Instagram), 1:1 or 16:9, with a blurred background or cropped to fit; one-click presets
 - **Stabilization** — light, normal or strong, applied at export (two-pass `vidstab`)
 - **Mute** — toggle audio on/off
 - **Projects** — save your edits to a `.lcvproj` file (`Ctrl/Cmd+S`) and reopen them later (`Ctrl/Cmd+Shift+O`); closing the window with unsaved edits asks first
@@ -139,7 +140,7 @@ A zone you are drawing is previewed before you release the mouse.
 ### 5. Crop
 
 1. Click **Crop** in the toolbar — a selection overlay appears on the video
-2. Drag the corner handles to resize the crop area
+2. Drag the corner handles to resize the crop area (or pick a ratio — 9:16, 4:5, 1:1, 16:9 — at the top of the video: the box takes the largest centred area of that ratio and keeps it while you resize)
 3. Drag inside the selection to move it
 4. Press **Enter** or click **✓ Apply** to confirm
 5. A thin red frame appears on the video indicating the active crop zone
@@ -201,6 +202,8 @@ Click **Export** in the toolbar.
 4. A progress bar tracks the encoding. **Stop export** cancels it; the dialog cannot be closed while it runs.
 
 **Quality** — *High*, *Balanced* or *Small file* (x264 CRF 18 / 22 / 28, VP9 CRF 24 / 30 / 37; audio 256 / 192 / 128 kbit/s). **Resolution** caps the height of the picture (4K … 360p) and never enlarges a smaller video. For a **GIF**, pick the width and the frame rate instead; the quality then sets the palette (256 or 128 colours) and the dithering. Your choices are remembered.
+
+**Social formats** — pick a preset (*TikTok · Reels · Shorts*, *Instagram post*, *Square*, *YouTube*) or set the **Aspect ratio** yourself. *Blurred background* keeps the whole picture, centred over a blurred, enlarged copy of itself; *Crop to fit* cuts a centred area of that ratio instead. With a ratio set, the resolution applies to the **shorter side**: 1080 gives 1080×1920 for 9:16.
 
 **Hardware acceleration** is offered for MP4, MOV and AVI when this computer can really do it — it is tested with a tiny encode, not assumed. The bundled FFmpeg supports Apple VideoToolbox on macOS; its Linux build has no GPU encoder. To use NVENC, VAAPI or Quick Sync on Linux, run the app with `LIGHTCUTVIDZ_FFMPEG=/usr/bin/ffmpeg` (a system FFmpeg built with them). If a hardware encode fails, the export is retried in software.
 

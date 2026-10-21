@@ -384,6 +384,72 @@ describe('export quality', () => {
   }, 180000)
 })
 
+describe('export — social formats (reframe)', () => {
+  const darkShare = (file, v) => countPixels(file, 1, (r, g, b) => r < 12 && g < 12 && b < 12) / (v.width * v.height)
+
+  it('blur: a landscape clip becomes a 9:16 canvas, the whole picture kept, no black bars', async () => {
+    const { meta, out } = await doExport('rf-blur.mp4', { reframe: { aspect: '9:16', mode: 'blur' } })
+    const v = video(meta)
+    expect(v.width).toBe(640)
+    expect(v.height).toBeGreaterThanOrEqual(1136)
+    expect(v.height).toBeLessThanOrEqual(1138)
+    // testsrc2 has very few near-black pixels; black bars would be ~70% of the frame.
+    expect(darkShare(out, v)).toBeLessThan(0.1)
+  }, 60000)
+
+  it('crop: cuts a centred 9:16 area out of the frame', async () => {
+    const { meta } = await doExport('rf-crop.mp4', { reframe: { aspect: '9:16', mode: 'crop' } })
+    expect(video(meta)).toMatchObject({ width: 202, height: 360 })
+  }, 60000)
+
+  it('blur: a portrait clip goes to a wider canvas without scaling the picture', async () => {
+    const { meta } = await doExport('rf-wide.mp4', { rotation: 90, reframe: { aspect: '16:9', mode: 'blur' } })
+    const v = video(meta)
+    expect(v.height).toBe(640)
+    expect(v.width).toBeGreaterThanOrEqual(1138)
+    expect(v.width).toBeLessThanOrEqual(1138 + 2)
+  }, 60000)
+
+  it('crop and blur are no-ops in size when the clip already has that ratio', async () => {
+    const { meta } = await doExport('rf-same.mp4', { reframe: { aspect: '16:9', mode: 'blur' } })
+    expect(video(meta)).toMatchObject({ width: 640, height: 360 })
+  }, 60000)
+
+  it('the resolution is the shorter side: 9:16 at 480 is 480 wide', async () => {
+    const { meta } = await doExport('rf-res.mp4', { resolution: 480, reframe: { aspect: '9:16', mode: 'blur' } })
+    const v = video(meta)
+    expect(v.width).toBe(480)
+    expect(v.height).toBeGreaterThanOrEqual(852)
+    expect(v.height).toBeLessThanOrEqual(854)
+  }, 60000)
+
+  it('never upscales: 1080 on a 640-wide clip stays 640', async () => {
+    const { meta } = await doExport('rf-noup.mp4', { resolution: 1080, reframe: { aspect: '1:1', mode: 'blur' } })
+    expect(video(meta)).toMatchObject({ width: 640, height: 640 })
+  }, 60000)
+
+  it('works with cuts, speed, a crop and subtitles together (reframed before burning)', async () => {
+    const style = { fontFamily: 'DejaVu Sans', fontSize: 8, color: '#ffffff', outlineColor: '#000000', outlineWidth: 2, backgroundColor: '#000000', backgroundOpacity: 0, position: 'bottom', accentColor: '#22d3ee' }
+    const options = validateExportOptions({
+      ...base, inputPath: source, outputPath: path.join(dir, 'rf-all.mp4'), speed: 2, crop: { x: 0, y: 0, w: 600, h: 340 },
+      segments: [{ start: 0, end: 2 }, { start: 3, end: 5 }], reframe: { aspect: '4:5', mode: 'blur' },
+      subtitles: { cues: [{ id: 1, start: 0, end: 2, text: 'HI' }], style, animation: 'sentence-fade' },
+    })
+    const workDir = fs.mkdtempSync(path.join(dir, 'rf-all-'))
+    await exportVideo({ run, probe, getFilterFfmpeg, sendProgress: () => {}, options, workDir })
+    const v = video(await probe(options.outputPath))
+    expect(v.width).toBe(600)
+    expect(v.height).toBeGreaterThanOrEqual(748)
+    expect(v.height).toBeLessThanOrEqual(750)
+  }, 120000)
+
+  it('exports a GIF at a social ratio too', async () => {
+    const { meta } = await doExport('rf.gif', { format: 'gif', reframe: { aspect: '1:1', mode: 'crop' }, gifWidth: 240, segments: [{ start: 0, end: 1 }] })
+    expect(video(meta).width).toBe(240)
+    expect(video(meta).height).toBe(240)
+  }, 60000)
+})
+
 describe('export resolution', () => {
   it('scales down to the requested height, keeping the aspect ratio and an even width', async () => {
     const { meta } = await doExport('r240.mp4', { resolution: 240 })
@@ -525,6 +591,13 @@ describe('hardware detection against the real binary', () => {
     expect(Array.isArray(found)).toBe(true)
     // The bundled Linux build has no hardware encoder compiled in.
     if (process.platform === 'linux') expect(found).toEqual([])
+  }, 60000)
+
+  it('runs the stabilisation trial against this build', async () => {
+    const { stabilizationWorks } = requireSrc('main/lib/hardware.js')
+    const works = await stabilizationWorks({ run: (a) => run(a), filtersText: await ffmpeg.query(['-filters']), workDir: dir })
+    // Informational on macOS (see the CI note); Linux's build must pass.
+    if (process.platform === 'linux') expect(works).toBe(true)
   }, 60000)
 
   it('reports the stabilisation filters of this build', async () => {

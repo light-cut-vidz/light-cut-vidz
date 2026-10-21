@@ -76,6 +76,7 @@ async function exportVideo({ run, probe, getFilterFfmpeg, sendProgress, onStartW
     speed,
     // A GIF's size is its width; the height cap applies to video only.
     maxHeight: format === 'gif' ? null : options.resolution,
+    reframe: options.reframe,
   })
 
   const gif = format === 'gif' ? gifTail({ width: options.gifWidth, fps: options.gifFps, quality }) : null

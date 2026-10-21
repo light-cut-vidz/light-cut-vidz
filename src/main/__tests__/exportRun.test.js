@@ -128,6 +128,14 @@ describe('exportVideo — quality, resolution and GIF settings reach ffmpeg', ()
     expect(graph).toMatch(/setpts=0\.5000\*PTS,scale=-2:'min\(720,ih\)',scale=trunc\(iw\/2\)\*2:trunc\(ih\/2\)\*2\[vout\]/)
   })
 
+  it('reframes to a social ratio inside the single graph', async () => {
+    const t = setup({ reframe: { aspect: '9:16', mode: 'blur' }, resolution: 1080 })
+    await t.go()
+    const graph = t.calls[0][t.calls[0].indexOf('-filter_complex') + 1]
+    expect(graph).toContain('split[rf0][rf1]')
+    expect(graph).toContain("min(1080,iw)")
+  })
+
   it('does not cap the height of a GIF; uses its own width and frame rate', async () => {
     const t = setup({ format: 'gif', outputPath: '/o.gif', resolution: 720, gifWidth: 320, gifFps: 12 })
     await t.go()

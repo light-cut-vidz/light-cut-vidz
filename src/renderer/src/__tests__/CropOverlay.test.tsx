@@ -278,3 +278,50 @@ describe('CropOverlay — cadrage initial', () => {
     expect((container.querySelector('.crop-box') as HTMLElement).style.width).toBe(before)
   })
 })
+describe('CropOverlay — formats réseaux sociaux', () => {
+  function setup(crop: CropRect | null = null) {
+    const onChangeLive = vi.fn()
+    const onCommit = vi.fn()
+    const { container, getByRole } = render(
+      <LangProvider><Harness crop={crop} onChangeLive={onChangeLive} onCommit={onCommit} /></LangProvider>,
+    )
+    const chip = (name: string) => Array.from(container.querySelectorAll('.crop-aspect')).find(b => b.textContent === name) as HTMLElement
+    return { container, onChangeLive, onCommit, chip, getByRole }
+  }
+
+  it('offers free-form and the four ratios', () => {
+    const { container } = setup()
+    expect(Array.from(container.querySelectorAll('.crop-aspect')).map(b => b.textContent)).toEqual(['Free', '9:16', '4:5', '1:1', '16:9'])
+  })
+
+  it('picking 9:16 puts the largest centred 9:16 box on a 1920×1080 frame, as one undo step', () => {
+    const { chip, onChangeLive, onCommit } = setup()
+    fireEvent.click(chip('9:16'))
+    expect(onChangeLive).toHaveBeenCalledWith({ x: 656, y: 0, w: 608, h: 1080 })
+    expect(onCommit).toHaveBeenCalledTimes(1)
+  })
+
+  it('marks the chosen ratio as pressed, and "Free" does not touch the box', () => {
+    const { chip, onChangeLive } = setup()
+    fireEvent.click(chip('1:1'))
+    expect(chip('1:1').getAttribute('aria-pressed')).toBe('true')
+    onChangeLive.mockClear()
+    fireEvent.click(chip('Free'))
+    expect(chip('Free').getAttribute('aria-pressed')).toBe('true')
+    expect(onChangeLive).not.toHaveBeenCalled()
+  })
+
+  it('keeps the ratio while a corner is dragged once one is picked', () => {
+    const { container, chip, onChangeLive } = setup({ x: 200, y: 200, w: 400, h: 400 })
+    fireEvent.click(chip('1:1'))
+    onChangeLive.mockClear()
+    const overlay = container.querySelector('.crop-overlay') as HTMLElement
+    const handle = container.querySelector('.crop-handle-br') as HTMLElement
+    handle.setPointerCapture = () => {}
+    fireEvent.pointerDown(handle, { clientX: 0, clientY: 0, pointerId: 1 })
+    fireEvent.pointerMove(overlay, { clientX: 50, clientY: 10, pointerId: 1 })
+    const r = onChangeLive.mock.calls[onChangeLive.mock.calls.length - 1][0] as CropRect
+    expect(r.w).toBe(r.h)
+    expect(r.w).toBeGreaterThan(400)
+  })
+})

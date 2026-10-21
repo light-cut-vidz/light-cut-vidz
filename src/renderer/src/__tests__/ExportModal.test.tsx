@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, fireEvent, screen, waitFor, act } from '@testing-library/react'
+import { render, fireEvent, screen, waitFor, act, cleanup } from '@testing-library/react'
 import React from 'react'
 import ExportModal from '../components/ExportModal'
 import { LangProvider } from '../i18n'
@@ -407,6 +407,78 @@ describe('ExportModal — export options', () => {
     expect(off).not.toMatch(/stabili[sz]ation/i)
     const on = r({ stabilize: 'normal' }).container.textContent
     expect(on).toMatch(/stabili[sz]ation/i)
+  })
+
+  describe('social formats', () => {
+    it('exports with the original proportions by default', async () => {
+      r()
+      expect((await payload()).reframe).toBeNull()
+    })
+
+    it('sends the chosen ratio with the blurred background by default', async () => {
+      r()
+      fireEvent.change(document.getElementById('opt-aspect')!, { target: { value: '9:16' } })
+      expect((await payload()).reframe).toEqual({ aspect: '9:16', mode: 'blur' })
+    })
+
+    it('only offers the fit mode once a ratio is chosen, and sends it', async () => {
+      r()
+      expect(screen.queryByRole('group', { name: /^fit$|^cadrage$/i })).toBeNull()
+      fireEvent.change(document.getElementById('opt-aspect')!, { target: { value: '1:1' } })
+      fireEvent.click(screen.getByRole('button', { name: /crop to fit|rogner au centre/i }))
+      expect((await payload()).reframe).toEqual({ aspect: '1:1', mode: 'crop' })
+    })
+
+    it('goes back to the original proportions', async () => {
+      r()
+      fireEvent.change(document.getElementById('opt-aspect')!, { target: { value: '4:5' } })
+      fireEvent.change(document.getElementById('opt-aspect')!, { target: { value: '' } })
+      expect((await payload()).reframe).toBeNull()
+    })
+
+    it('a preset sets ratio, MP4, blurred background, 1080 and balanced quality in one go', async () => {
+      r()
+      pickFormat('WebM')
+      fireEvent.click(screen.getByRole('button', { name: /^small file$|^petit fichier$/i }))
+      fireEvent.change(document.getElementById('opt-preset')!, { target: { value: 'vertical' } })
+      expect(await payload()).toMatchObject({ format: 'mp4', quality: 'balanced', resolution: 1080, reframe: { aspect: '9:16', mode: 'blur' } })
+    })
+
+    it('shows which preset is active, and "custom" as soon as a choice drifts from it', () => {
+      r()
+      const preset = () => (document.getElementById('opt-preset') as HTMLSelectElement).value
+      expect(preset()).toBe('custom')
+      fireEvent.change(document.getElementById('opt-preset')!, { target: { value: 'portrait' } })
+      expect(preset()).toBe('portrait')
+      fireEvent.change(document.getElementById('opt-resolution')!, { target: { value: '720' } })
+      expect(preset()).toBe('custom')
+    })
+
+    it('lists the summary line only when a ratio is set', () => {
+      const summary = () => document.querySelector('.export-summary')!.textContent
+      expect(r() && summary()).not.toMatch(/9:16/)
+      cleanup()
+      storage.lcv_export_prefs = JSON.stringify({ aspect: '9:16', reframeMode: 'crop' })
+      r()
+      expect(summary()).toMatch(/9:16 · (crop to fit|rogner au centre)/i)
+    })
+
+    it('remembers the ratio and mode, and ignores a stale one', () => {
+      r()
+      fireEvent.change(document.getElementById('opt-aspect')!, { target: { value: '16:9' } })
+      expect(JSON.parse(storage.lcv_export_prefs)).toMatchObject({ aspect: '16:9', reframeMode: 'blur' })
+      cleanup()
+      storage.lcv_export_prefs = JSON.stringify({ aspect: '21:9', reframeMode: 'stretch' })
+      r()
+      expect((document.getElementById('opt-aspect') as HTMLSelectElement).value).toBe('')
+    })
+
+    it('also applies to a GIF', async () => {
+      r()
+      pickFormat('GIF')
+      fireEvent.change(document.getElementById('opt-aspect')!, { target: { value: '1:1' } })
+      expect(await payload()).toMatchObject({ format: 'gif', reframe: { aspect: '1:1', mode: 'blur' } })
+    })
   })
 
   describe('remembered choices', () => {

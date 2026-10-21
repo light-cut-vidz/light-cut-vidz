@@ -297,6 +297,17 @@ describe('new export options', () => {
   ])('rejects %s', (_n, extra) => {
     expect(() => validateExportOptions({ ...ok, ...extra })).toThrow()
   })
+  it('takes a social format, and none by default', () => {
+    expect(validateExportOptions(ok).reframe).toBeNull()
+    expect(validateExportOptions({ ...ok, reframe: { aspect: '9:16', mode: 'blur' } }).reframe).toEqual({ aspect: '9:16', mode: 'blur' })
+  })
+  it.each([
+    ['unknown ratio', { aspect: '21:9', mode: 'blur' }],
+    ['injected ratio', { aspect: "1:1,drawtext=text='x'", mode: 'crop' }],
+    ['unknown mode', { aspect: '1:1', mode: 'stretch' }],
+  ])('rejects a social format with an %s', (_n, reframe) => {
+    expect(() => validateExportOptions({ ...ok, reframe })).toThrow(/reframe/)
+  })
   it('null means "use the default" for resolution and hardware', () => {
     expect(validateExportOptions({ ...ok, resolution: null, hardware: null })).toMatchObject({ resolution: null, hardware: null })
   })

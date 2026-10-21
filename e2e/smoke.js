@@ -176,6 +176,7 @@ app.whenReady().then(async () => {
     const jobs = [
       ['q1.mp4', { quality: 'small', resolution: 180, stabilize: 'light' }],
       ['q2.gif', { format: 'gif', gifWidth: 200, gifFps: 10, quality: 'small' }],
+      ['q3.mp4', { quality: 'small', resolution: 360, reframe: { aspect: '9:16', mode: 'blur' } }],
     ]
     for (const [name, extra] of jobs) {
       const out = path.join(work, name)
@@ -184,14 +185,14 @@ app.whenReady().then(async () => {
       const opts = { inputPath: shaky, outputPath: out, segments: [{ start: 0, end: 3 }], speed: 1, crop: null, filter: 'none', muted: true, format: 'mp4', subtitles: null, ...extra }
       queued.push({ out, ...(await run(`window.electronAPI.queueAdd(${JSON.stringify(opts)})`)) })
     }
-    check('two exports queued from the renderer', queued.length === 2 && queued[0].id !== queued[1].id)
+    check('three exports queued from the renderer', queued.length === 3 && new Set(queued.map(q => q.id)).size === 3)
     check('the queue pill shows up', await until(() => run("!!document.querySelector('.queue-pill')")))
     const finished = await until(async () => {
       // (the earlier export through the dialog is in the list too)
-      const list = (await run('window.electronAPI.queueList()')).filter(j => /^q[12]\./.test(j.name))
-      return list.length === 2 && list.every(j => j.status === 'done' || j.status === 'error') ? list : false
+      const list = (await run('window.electronAPI.queueList()')).filter(j => /^q[123]\./.test(j.name))
+      return list.length === 3 && list.every(j => j.status === 'done' || j.status === 'error') ? list : false
     }, 90000)
-    check('both queued exports finished, in order, without error', finished && finished.map(j => j.status).join() === 'done,done', JSON.stringify(finished))
+    check('all queued exports finished, in order, without error', finished && finished.map(j => j.status).join() === 'done,done,done', JSON.stringify(finished))
     if (finished) {
       const mp4 = await probe(queued[0].out)
       const v1 = mp4.streams.find(x => x.codec_type === 'video')
@@ -199,6 +200,8 @@ app.whenReady().then(async () => {
       const gif = await probe(queued[1].out)
       const v2 = gif.streams.find(x => x.codec_type === 'video')
       check('GIF honours the width and is a real GIF', v2.codec_name === 'gif' && v2.width === 200, `${v2.codec_name} ${v2.width}`)
+      const social = (await probe(queued[2].out)).streams.find(x => x.codec_type === 'video')
+      check('social format: 9:16 with a blurred background, 360 on the shorter side', social.width === 360 && social.height >= 638 && social.height <= 642, `${social.width}x${social.height}`)
     }
     await run("document.querySelector('.queue-pill').click()")
     check('the queue window lists the jobs', await until(() => run("document.querySelectorAll('.queue-job').length >= 2")))

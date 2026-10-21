@@ -59,10 +59,14 @@ function describeArgs(args) {
 // Encoders a trial encode succeeds with, for the hardware-detection probe.
 let workingEncoders = new Set()
 let filtersText = ' ... vidstabdetect V->V\n ... vidstabtransform V->V'
+let stabilizationReadable = true
 
 function makeRun(args, opts) {
   // A tiny synthetic encode is the hardware-detection probe, not an export.
   if (args.includes('lavfi')) {
+    if (args.some(a => /^vidstab/.test(a))) {
+      return { promise: stabilizationReadable ? Promise.resolve() : Promise.reject(new Error('Cannot parse localmotion!')), kill() {} }
+    }
     const encoder = args[args.indexOf('-c:v') + 1]
     return { promise: workingEncoders.has(encoder) ? Promise.resolve() : Promise.reject(new Error('Encoder not found')), kill() {} }
   }
@@ -203,6 +207,7 @@ beforeEach(async () => {
   probeError = null
   probeResult = defaultProbe()
   workingEncoders = new Set()
+  stabilizationReadable = true
   filtersText = ' ... vidstabdetect V->V\n ... vidstabtransform V->V'
   sent.length = 0
   ipcHandlers.clear()
@@ -1203,6 +1208,11 @@ describe('ffmpeg capabilities and the options that depend on them', () => {
 
   it('reports no stabilisation when the filters are missing', async () => {
     filtersText = ' ... scale V->V'
+    expect((await invoke('ffmpeg:capabilities')).stabilization).toBe(false)
+  })
+
+  it('reports no stabilisation when the motion data cannot be read back', async () => {
+    stabilizationReadable = false
     expect((await invoke('ffmpeg:capabilities')).stabilization).toBe(false)
   })
 

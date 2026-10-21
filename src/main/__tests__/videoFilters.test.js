@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { requireSrc } from './__doubles__/installElectron.js'
-const { toEven, rotationFilter, perspectiveFilter, cropFilter, speedFilter, buildVideoFilters, EVEN_DIMENSIONS, } = requireSrc('main/lib/videoFilters.js')
+const { toEven, rotationFilter, perspectiveFilter, cropFilter, speedFilter, buildVideoFilters, EVEN_DIMENSIONS, reframeFilter, shortSideFilter, ASPECTS, } = requireSrc('main/lib/videoFilters.js')
 
 describe('rotationFilter', () => {
   it('returns null for 0', () => {
@@ -165,5 +165,58 @@ describe('buildVideoFilters', () => {
 
   it('treats falsy crop, no color, default speed/rotation as no transformation', () => {
     expect(buildVideoFilters({ crop: null })).toEqual([EVEN_DIMENSIONS])
+  })
+})
+
+describe('reframeFilter', () => {
+  it('does nothing without a target', () => {
+    expect(reframeFilter(null)).toBeNull()
+  })
+
+  it('crop mode cuts the largest centred area of the ratio, on even sizes', () => {
+    const f = reframeFilter({ aspect: '9:16', mode: 'crop' })
+    expect(f).toBe("crop=w='trunc((min(iw,ih*(9/16)))/2)*2':h='trunc((min(ih,iw/(9/16)))/2)*2'")
+  })
+
+  it('blur mode keeps the frame over a blurred, enlarged copy of itself', () => {
+    const f = reframeFilter({ aspect: '4:5', mode: 'blur' })
+    expect(f).toContain('split[rf0][rf1]')
+    expect(f).toContain('force_original_aspect_ratio=increase')
+    expect(f).toContain('boxblur=')
+    expect(f).toContain('[rfbg][rf0]overlay=x=(main_w-overlay_w)/2:y=(main_h-overlay_h)/2')
+  })
+
+  it('wraps the ratio so that dividing by it is right ("iw/9/16" would not be)', () => {
+    expect(reframeFilter({ aspect: '9:16', mode: 'blur' })).toContain('iw/(9/16)')
+  })
+
+  it('offers the four social ratios', () => {
+    expect(ASPECTS).toEqual(['9:16', '4:5', '1:1', '16:9'])
+  })
+})
+
+describe('shortSideFilter', () => {
+  it('is absent without a limit', () => {
+    expect(shortSideFilter(null)).toBeNull()
+  })
+  it('limits the shorter side and never upscales', () => {
+    const f = shortSideFilter(1080)
+    expect(f).toContain('min(1080,iw)')
+    expect(f).toContain('min(1080,ih)')
+  })
+})
+
+describe('buildVideoFilters — reframe', () => {
+  it('puts the reframe after colour and speed, before the size cap and the even guard', () => {
+    const out = buildVideoFilters({ colorFilter: 'hue=s=0', speed: 2, reframe: { aspect: '1:1', mode: 'crop' }, maxHeight: 720 })
+    expect(out[0]).toBe('hue=s=0')
+    expect(out[1]).toMatch(/^setpts=/)
+    expect(out[2]).toMatch(/^crop=w=/)
+    expect(out[3]).toMatch(/^scale=w='if\(gt\(iw,ih\)/)
+    expect(out.at(-1)).toBe(EVEN_DIMENSIONS)
+  })
+
+  it('uses the plain height cap when there is no reframe', () => {
+    expect(buildVideoFilters({ maxHeight: 720 })[0]).toBe("scale=-2:'min(720,ih)'")
   })
 })

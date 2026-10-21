@@ -4,6 +4,7 @@
 
 const { clampAtempo } = require('./atempo')
 const { escapeForFfmpegFilter } = require('./subtitles')
+const { ASPECTS, REFRAME_MODES } = require('./videoFilters')
 
 const FORMATS = ['mp4', 'mov', 'webm', 'avi', 'gif']
 const QUALITIES = ['high', 'balanced', 'small']
@@ -106,12 +107,21 @@ function validateExportOptions(options) {
   const resolution = options.resolution === undefined || options.resolution === null
     ? null : Math.round(num(options.resolution, 'resolution', 144, 4320))
 
+  let reframe = null
+  if (options.reframe) {
+    const { aspect, mode } = options.reframe
+    if (!ASPECTS.includes(aspect)) fail('reframe.aspect')
+    if (!REFRAME_MODES.includes(mode)) fail('reframe.mode')
+    reframe = { aspect, mode }
+  }
+
   return {
     inputPath,
     outputPath,
     format,
     segments,
     crop,
+    reframe,
     filter: options.filter || 'none',
     speed: num(options.speed, 'speed', 0.25, 4, 1),
     rotation: num(options.rotation, 'rotation', -360, 360, 0),

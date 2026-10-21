@@ -3,6 +3,7 @@ import type { EditorState } from '../App'
 import { formatTime, getKeptSegments } from '../utils/time'
 import { getFilterById } from '../utils/filters'
 import { useT } from '../i18n'
+import { ASPECTS, SOCIAL_PRESETS, PRESET_SETTINGS, type Aspect, type ReframeMode, type PresetId } from '../utils/presets'
 import './ExportModal.css'
 
 interface Props {
@@ -28,8 +29,11 @@ interface Prefs {
   gifWidth: number
   gifFps: number
   hardware: boolean
+  /** Social format to fit the picture to, or null to keep its own proportions. */
+  aspect: Aspect | null
+  reframeMode: ReframeMode
 }
-const DEFAULT_PREFS: Prefs = { format: 'mp4', quality: 'balanced', resolution: null, gifWidth: 480, gifFps: 15, hardware: true }
+const DEFAULT_PREFS: Prefs = { format: 'mp4', quality: 'balanced', resolution: null, gifWidth: 480, gifFps: 15, hardware: true, aspect: null, reframeMode: 'blur' }
 const PREFS_KEY = 'lcv_export_prefs'
 
 /** Last used choices, validated: a stale or hand-edited value falls back to its default. */
@@ -43,6 +47,8 @@ function loadPrefs(): Prefs {
       gifWidth: GIF_WIDTHS.includes(raw.gifWidth) ? raw.gifWidth : DEFAULT_PREFS.gifWidth,
       gifFps: GIF_FPS.includes(raw.gifFps) ? raw.gifFps : DEFAULT_PREFS.gifFps,
       hardware: raw.hardware !== false,
+      aspect: ASPECTS.includes(raw.aspect) ? raw.aspect : null,
+      reframeMode: raw.reframeMode === 'crop' ? 'crop' : 'blur',
     }
   } catch {
     return DEFAULT_PREFS
@@ -59,6 +65,16 @@ export default function ExportModal({ state, onClose, onQueued }: Props) {
     return next
   })
   const setFormat = (f: Format) => update({ format: f })
+
+  // The preset is not stored: it is whichever one the current choices spell out.
+  const activePreset: PresetId | 'custom' = SOCIAL_PRESETS.find(p =>
+    prefs.aspect === p.aspect && prefs.format === PRESET_SETTINGS.format
+    && prefs.reframeMode === PRESET_SETTINGS.mode && prefs.resolution === PRESET_SETTINGS.resolution)?.id ?? 'custom'
+  const applyPreset = (id: string) => {
+    const preset = SOCIAL_PRESETS.find(p => p.id === id)
+    if (!preset) return
+    update({ aspect: preset.aspect, format: PRESET_SETTINGS.format, reframeMode: PRESET_SETTINGS.mode, resolution: PRESET_SETTINGS.resolution, quality: PRESET_SETTINGS.quality })
+  }
 
   // What this machine's ffmpeg can do: hardware encoders (probed) and stabilisation.
   const [caps, setCaps] = useState<{ hardware: string[]; stabilization: boolean }>({ hardware: [], stabilization: true })
@@ -113,6 +129,7 @@ export default function ExportModal({ state, onClose, onQueued }: Props) {
     format,
     quality,
     resolution: format === 'gif' ? null : resolution,
+    reframe: prefs.aspect ? { aspect: prefs.aspect, mode: prefs.reframeMode } : null,
     gifWidth,
     gifFps,
     stabilize: state.stabilize,
@@ -193,6 +210,12 @@ export default function ExportModal({ state, onClose, onQueued }: Props) {
               {state.crop ? `${state.crop.w}×${state.crop.h}` : t.export_crop_none}
             </span>
           </div>
+          {prefs.aspect && (
+            <div className="summary-row">
+              <span className="summary-label">{t.export_reframe}</span>
+              <span className="summary-value">{prefs.aspect} · {prefs.reframeMode === 'blur' ? t.reframe_blur : t.reframe_crop}</span>
+            </div>
+          )}
           <div className="summary-row">
             <span className="summary-label">{t.tool_geometry}</span>
             <span className="summary-value">
@@ -218,6 +241,17 @@ export default function ExportModal({ state, onClose, onQueued }: Props) {
             <span className="summary-value">
               {state.subtitles ? state.subtitles.fileName : t.export_subtitles_none}
             </span>
+          </div>
+        </div>
+
+        {/* Social network presets */}
+        <div className="export-options">
+          <div className="opt-row">
+            <label className="opt-label" htmlFor="opt-preset">{t.export_preset}</label>
+            <select id="opt-preset" className="opt-select" value={activePreset} disabled={exporting} onChange={e => applyPreset(e.target.value)}>
+              <option value="custom" disabled>{t.preset_custom}</option>
+              {SOCIAL_PRESETS.map(p => <option key={p.id} value={p.id}>{t[`preset_${p.id}`]}</option>)}
+            </select>
           </div>
         </div>
 
@@ -249,10 +283,33 @@ export default function ExportModal({ state, onClose, onQueued }: Props) {
             </div>
           </div>
 
+          <div className="opt-row">
+            <label className="opt-label" htmlFor="opt-aspect">{t.export_reframe}</label>
+            <select id="opt-aspect" className="opt-select" value={prefs.aspect ?? ''} disabled={exporting}
+              onChange={e => update({ aspect: e.target.value === '' ? null : e.target.value as Aspect })}>
+              <option value="">{t.reframe_original}</option>
+              {ASPECTS.map(a => <option key={a} value={a}>{t[`aspect_${a.replace(':', '_')}` as 'aspect_9_16']}</option>)}
+            </select>
+          </div>
+          {prefs.aspect && (
+            <div className="opt-row">
+              <span className="opt-label">{t.export_reframe_mode}</span>
+              <div className="seg" role="group" aria-label={t.export_reframe_mode}>
+                {(['blur', 'crop'] as ReframeMode[]).map(m => (
+                  <button key={m} className={`seg-btn ${prefs.reframeMode === m ? 'active' : ''}`} aria-pressed={prefs.reframeMode === m}
+                    title={t[`reframe_${m}_hint`]} disabled={exporting} onClick={() => update({ reframeMode: m })}>
+                    {t[`reframe_${m}`]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {format !== 'gif' ? (
             <div className="opt-row">
               <label className="opt-label" htmlFor="opt-resolution">{t.export_resolution}</label>
               <select id="opt-resolution" className="opt-select" value={resolution ?? ''} disabled={exporting}
+                title={prefs.aspect ? t.resolution_short_hint : undefined}
                 onChange={e => update({ resolution: e.target.value === '' ? null : Number(e.target.value) })}>
                 <option value="">{t.resolution_original}</option>
                 {RESOLUTIONS.map(r => <option key={r} value={r}>{r}p</option>)}

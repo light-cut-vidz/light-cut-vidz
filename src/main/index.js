@@ -14,7 +14,7 @@ const { createExportQueue } = require('./lib/exportQueue')
 const { readJson, writeJson } = require('./lib/store')
 const { sanitizeRecent, addRecent, removeRecent } = require('./lib/recent')
 const { sanitizeSettings, THEMES } = require('./lib/settings')
-const { detectHardware, hasStabilization } = require('./lib/hardware')
+const { detectHardware, stabilizationWorks } = require('./lib/hardware')
 const { canPlayDirectly } = require('./lib/preview')
 const { decodeText } = require('./lib/decodeText')
 const { parseChangelog, entriesUpTo } = require('./lib/changelog')
@@ -413,10 +413,18 @@ async function executeExport(options, ctx) {
 let capabilitiesPromise = null
 function getCapabilities() {
   if (!capabilitiesPromise) {
-    capabilitiesPromise = (async () => ({
-      hardware: await detectHardware({ run: (args) => ffmpeg.run(args).promise, platform: process.platform }),
-      stabilization: hasStabilization(await ffmpeg.query(['-filters'])),
-    }))()
+    capabilitiesPromise = (async () => {
+      const run = (args) => ffmpeg.run(args).promise
+      const workDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'lc_probe_'))
+      try {
+        return {
+          hardware: await detectHardware({ run, platform: process.platform }),
+          stabilization: await stabilizationWorks({ run, filtersText: await ffmpeg.query(['-filters']), workDir }),
+        }
+      } finally {
+        await fs.promises.rm(workDir, { recursive: true, force: true })
+      }
+    })()
   }
   return capabilitiesPromise
 }

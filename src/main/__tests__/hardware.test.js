@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { requireSrc } from './__doubles__/installElectron.js'
 
-const { detectHardware, hasStabilization, CANDIDATES } = requireSrc('main/lib/hardware.js')
+const { detectHardware, hasStabilization, stabilizationWorks, CANDIDATES } = requireSrc('main/lib/hardware.js')
 
 describe('detectHardware', () => {
   it('tries only the encoders that make sense for the platform', () => {
@@ -49,5 +49,27 @@ describe('hasStabilization', () => {
     expect(hasStabilization(' ... vidstabdetect  V->V\n ... vidstabtransform V->V')).toBe(true)
     expect(hasStabilization(' ... vidstabdetect  V->V')).toBe(false)
     expect(hasStabilization('')).toBe(false)
+  })
+})
+
+describe('stabilizationWorks', () => {
+  const filtersText = ' ... vidstabdetect  V->V\n ... vidstabtransform V->V'
+
+  it('tries both passes and says yes when they succeed', async () => {
+    const run = vi.fn().mockResolvedValue(undefined)
+    expect(await stabilizationWorks({ run, filtersText, workDir: '/w' })).toBe(true)
+    expect(run.mock.calls[0][0].join(' ')).toContain('vidstabdetect=result=/w/probe.trf')
+    expect(run.mock.calls[1][0].join(' ')).toContain('vidstabtransform=input=/w/probe.trf')
+  })
+
+  it('says no when the motion data cannot be read back', async () => {
+    const run = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('Cannot parse localmotion!'))
+    expect(await stabilizationWorks({ run, filtersText, workDir: '/w' })).toBe(false)
+  })
+
+  it('says no without trying when the filters are missing', async () => {
+    const run = vi.fn()
+    expect(await stabilizationWorks({ run, filtersText: '', workDir: '/w' })).toBe(false)
+    expect(run).not.toHaveBeenCalled()
   })
 })

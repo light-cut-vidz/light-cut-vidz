@@ -5,6 +5,16 @@ La version anglaise est dans [CHANGELOG.md](CHANGELOG.md) — gardez les deux sy
 
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [1.0.4] - 2026-10-21
+
+### Ajouté
+- **Formats réseaux sociaux** : l'outil de recadrage propose des formats — 9:16 (TikTok, Reels, Shorts), 4:5 (Instagram), 1:1 et 16:9 — et garde la sélection à ce format quand vous la redimensionnez.
+- **Adapter à un format à l'export** : choisissez les proportions dans la fenêtre d'export, avec un **fond flouté** (l'image reste entière, centrée sur une copie floutée d'elle-même — le rendu habituel d'une vidéo horizontale publiée en vertical) ou en **rognant au centre**. Fonctionne aussi pour les GIF.
+- **Préréglages** : TikTok · Reels · Shorts, Post Instagram, Carré et YouTube règlent en un clic le format, les proportions, la résolution (1080 sur le petit côté) et la qualité.
+
+### Corrigé
+- La stabilisation vidéo n'est plus proposée que si elle fonctionne vraiment avec le FFmpeg utilisé ; sur certains Mac elle échouait à l'export (« Cannot parse localmotion »).
+
 ## [1.0.3] - 2026-10-21
 
 ### Ajouté

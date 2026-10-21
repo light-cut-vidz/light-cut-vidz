@@ -5,6 +5,16 @@ The French version is in [CHANGELOG.fr.md](CHANGELOG.fr.md) — keep both in ste
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.4] - 2026-10-21
+
+### Added
+- **Social formats**: the crop tool now offers ratios — 9:16 (TikTok, Reels, Shorts), 4:5 (Instagram), 1:1 and 16:9 — and keeps the selection at that ratio while you resize it.
+- **Fit to a format when exporting**: pick the proportions in the export window, either with a **blurred background** (the whole picture stays, centred over a blurred copy of itself — the usual look of a landscape video posted vertically) or **crop to fit**. Works for GIFs too.
+- **Presets**: TikTok · Reels · Shorts, Instagram post, Square and YouTube set the format, proportions, resolution (1080 on the shorter side) and quality in one click.
+
+### Fixed
+- Video stabilization is now only offered when it really works with the FFmpeg in use; on some Macs it failed at export time ("Cannot parse localmotion").
+
 ## [1.0.3] - 2026-10-21
 
 ### Added

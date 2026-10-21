@@ -1,7 +1,9 @@
-import React, { useRef, useEffect, useCallback, useMemo } from 'react'
+import React, { useRef, useEffect, useCallback, useMemo, useState } from 'react'
 import type { CropRect } from '../App'
 import { useT } from '../i18n'
 import { useVideoRect } from '../hooks/useVideoRect'
+import { aspectValue, fitAspect, resizeLocked } from '../utils/crop'
+import { ASPECTS, type Aspect } from '../utils/presets'
 import './CropOverlay.css'
 
 interface Props {
@@ -18,6 +20,8 @@ type Handle = 'tl' | 'tr' | 'bl' | 'br' | 'move'
 export default function CropOverlay({ videoRef, crop, onChangeLive, onCommit, onApply }: Props) {
   const { t } = useT()
   const overlayRef = useRef<HTMLDivElement>(null)
+  // Ratio the box is locked to while resizing (UI only: the crop itself is a plain rectangle).
+  const [aspect, setAspect] = useState<Aspect | null>(null)
   const dragRef = useRef<{ handle: Handle; startX: number; startY: number; initCrop: CropRect } | null>(null)
   const video = useVideoRect(videoRef)
   const natural = {
@@ -34,6 +38,14 @@ export default function CropOverlay({ videoRef, crop, onChangeLive, onCommit, on
     () => crop ?? { x: 0, y: 0, w: natural.w, h: natural.h },
     [crop, natural.w, natural.h],
   )
+
+  // One undo step: the box jumps to the largest centred area of the ratio.
+  const pickAspect = (next: Aspect | null) => {
+    setAspect(next)
+    if (!next) return
+    onChangeLive(fitAspect(natural, next))
+    onCommit()
+  }
 
   // Enter key applies
   useEffect(() => {
@@ -69,6 +81,9 @@ export default function CropOverlay({ videoRef, crop, onChangeLive, onCommit, on
     if (handle === 'move') {
       nx = Math.max(0, Math.min(vw - nw, initCrop.x + dx / sc))
       ny = Math.max(0, Math.min(vh - nh, initCrop.y + dy / sc))
+    } else if (aspect) {
+      const r = resizeLocked(initCrop, handle, dx / sc, dy / sc, { w: vw, h: vh }, aspectValue(aspect), min)
+      nx = r.x; ny = r.y; nw = r.w; nh = r.h
     } else {
       if (handle === 'tl' || handle === 'bl') {
         nx = Math.max(0, Math.min(initCrop.x + initCrop.w - min, initCrop.x + dx / sc))
@@ -87,7 +102,7 @@ export default function CropOverlay({ videoRef, crop, onChangeLive, onCommit, on
     }
 
     onChangeLive({ x: Math.round(nx), y: Math.round(ny), w: Math.round(nw), h: Math.round(nh) })
-  }, [displayRect.scale, natural.w, natural.h, onChangeLive])
+  }, [displayRect.scale, natural.w, natural.h, onChangeLive, aspect])
 
   // Closing the gesture here is what turns a whole drag into one undo step.
   // A cancelled pointer (focus lost, touch interrupted) must close it too, or the
@@ -107,6 +122,18 @@ export default function CropOverlay({ videoRef, crop, onChangeLive, onCommit, on
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
     >
+      {/* Ratio presets: social formats and free-form */}
+      <div className="crop-aspects" role="group" aria-label={t.crop_ratio} onPointerDown={(e) => e.stopPropagation()}>
+        <button className={`crop-aspect ${aspect === null ? 'active' : ''}`} aria-pressed={aspect === null} onClick={() => pickAspect(null)}>
+          {t.aspect_free}
+        </button>
+        {ASPECTS.map(a => (
+          <button key={a} className={`crop-aspect ${aspect === a ? 'active' : ''}`} aria-pressed={aspect === a} title={t[`aspect_${a.replace(':', '_')}` as 'aspect_9_16']} onClick={() => pickAspect(a)}>
+            {a}
+          </button>
+        ))}
+      </div>
+
       {/* Dark areas outside selection */}
       <div className="crop-shade" style={{ top: 0, left: 0, right: 0, height: d.y }} />
       <div className="crop-shade" style={{ top: d.y + d.h, left: 0, right: 0, bottom: 0 }} />

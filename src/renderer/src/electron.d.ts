@@ -64,6 +64,7 @@ declare global {
         format: string
         quality?: 'high' | 'balanced' | 'small'
         resolution?: number | null
+        reframe?: { aspect: string; mode: 'blur' | 'crop' } | null
         stabilize?: 'off' | 'light' | 'normal' | 'strong'
         hardware?: string | null
         gifWidth?: number
