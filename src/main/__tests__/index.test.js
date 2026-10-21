@@ -406,13 +406,15 @@ describe('ffmpeg:preview', () => {
 
   it('stops a transcode still running when another video is loaded', async () => {
     holdRunAt = 0
-    const stale = invoke('ffmpeg:preview', '/a.mp4')
+    // The handler is attached at once: the kill rejects this promise long
+    // before the test gets to look at it.
+    const stale = invoke('ffmpeg:preview', '/a.mp4').then(() => null, (err) => err)
     await vi.waitFor(() => expect(commands).toHaveLength(1))
 
     await invoke('ffmpeg:preview', '/b.mp4')
 
     expect(commands[0].killedWith).toBe('SIGKILL')
-    await expect(stale).rejects.toThrow('cancelled')
+    expect((await stale)?.message).toBe('cancelled')
     expect(leftovers()).toHaveLength(1)
   })
 
@@ -626,13 +628,13 @@ describe('ffmpeg:export — failure and cancellation', () => {
   it('kills ffmpeg on cancel and reports a cancellation', async () => {
     await pickFiles()
     holdRunAt = 0
-    const running = invoke('ffmpeg:export', baseExport)
+    const running = invoke('ffmpeg:export', baseExport).then(() => null, (err) => err)
     await vi.waitFor(() => expect(commands).toHaveLength(1))
 
     await invoke('ffmpeg:cancel')
 
     expect(commands[0].killedWith).toBe('SIGKILL')
-    await expect(running).rejects.toThrow('cancelled')
+    expect((await running)?.message).toBe('cancelled')
     expect(leftovers()).toEqual([])
   })
 
