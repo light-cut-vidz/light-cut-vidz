@@ -43,7 +43,7 @@ const hasStabilization = (filtersText) => /\bvidstabdetect\b/.test(filtersText) 
 /**
  * Whether stabilisation really works with this build: having the filters is not
  * enough (some builds write motion data they cannot read back — "Cannot parse
- * localmotion!"), so both passes are tried on a tiny synthetic clip.
+ * localmotion!"), so both passes are tried on a short synthetic shaky clip.
  * @param {object} deps
  * @param {(args: string[]) => Promise<void>} deps.run   resolves when ffmpeg exits 0
  * @param {string} deps.filtersText  output of `ffmpeg -filters`
@@ -52,7 +52,9 @@ const hasStabilization = (filtersText) => /\bvidstabdetect\b/.test(filtersText) 
 async function stabilizationWorks({ run, filtersText, workDir }) {
   if (!hasStabilization(filtersText)) return false
   const trf = escapeForFfmpegFilter(path.join(workDir, 'probe.trf'))
-  const source = ['-f', 'lavfi', '-i', 'testsrc2=s=320x240:d=2:r=25']
+  // A shaky picture with real texture: flat or static test patterns make
+  // vid.stab fail even on builds where it works on real footage.
+  const source = ['-f', 'lavfi', '-i', "testsrc2=s=480x300:r=25:d=2,crop=320:240:x='80+20*sin(t*13)':y='30+15*sin(t*17)'"]
   try {
     await run([...source, '-vf', `vidstabdetect=result=${trf}`, '-f', 'null', '-'])
     await run([...source, '-vf', `vidstabtransform=input=${trf}`, '-f', 'null', '-'])
