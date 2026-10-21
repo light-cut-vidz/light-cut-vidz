@@ -496,9 +496,13 @@ describe('ffmpeg:export — guards', () => {
     expect(commands).toHaveLength(1) // not started yet
     expect((await invoke('queue:list')).map(j => j.status)).toEqual(['running', 'queued'])
 
+    // Handlers first: cancelling rejects the waiting job at once.
+    const outcomes = Promise.allSettled([first, second])
     await invoke('ffmpeg:cancel') // stops what the dialog started, including the waiting one
-    await expect(first).rejects.toThrow('cancelled')
-    await expect(second).rejects.toThrow('cancelled')
+    const [a, b] = await outcomes
+    expect([a.status, b.status]).toEqual(['rejected', 'rejected'])
+    expect(a.reason.message).toBe('cancelled')
+    expect(b.reason.message).toBe('cancelled')
   })
 
   it('runs the second export once the first has finished', async () => {
