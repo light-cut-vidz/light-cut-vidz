@@ -5,6 +5,11 @@ La version anglaise est dans [CHANGELOG.md](CHANGELOG.md) — gardez les deux sy
 
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [1.0.5] - 2026-10-21
+
+### Corrigé
+- L'option Stabilisation pouvait être masquée à tort : la vérification qui décide si elle fonctionne n'était pas fiable et répondait parfois non. Elle est maintenant testée sur un clip qui bouge vraiment, et répond juste à chaque fois.
+
 ## [1.0.4] - 2026-10-21
 
 ### Ajouté

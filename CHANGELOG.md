@@ -5,6 +5,11 @@ The French version is in [CHANGELOG.fr.md](CHANGELOG.fr.md) — keep both in ste
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.5] - 2026-10-21
+
+### Fixed
+- The Stabilization option could be hidden by mistake: the check that decides whether it works was unreliable and sometimes answered no. It now tests on a clip that really shakes, and gives the right answer every time.
+
 ## [1.0.4] - 2026-10-21
 
 ### Added
