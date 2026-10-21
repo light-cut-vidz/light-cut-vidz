@@ -77,7 +77,8 @@ function makeRun(args, opts) {
       if (index === failRunAt) return reject(new Error('ffmpeg exploded'))
       // Stand in for the file ffmpeg would have produced, so the cleanup
       // paths under test have something real to delete.
-      try { fs.writeFileSync(record.output, 'VIDEO') } catch { /* outside tmp */ }
+      // ('-' is a pipe, e.g. the stabilisation analysis pass: nothing to write)
+      if (record.output !== '-') { try { fs.writeFileSync(record.output, 'VIDEO') } catch { /* outside tmp */ } }
       // Le vrai ffmpeg pousse des progrès avant la fin : les relais IPC en dépendent.
       if (opts && opts.onProgress) opts.onProgress(1)
       resolve()
