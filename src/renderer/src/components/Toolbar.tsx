@@ -1,5 +1,6 @@
 import React, { memo } from 'react'
 import type { EditorState } from '../App'
+import type { StabilizeLevel } from '../hooks/useHistory'
 import { useT } from '../i18n'
 import { SHOW_CHANGELOG_EVENT } from './ChangelogModal'
 import { getFilterById } from '../utils/filters'
@@ -7,6 +8,7 @@ import { CubeIcon, StarIcon, SoundOnIcon, SoundOffIcon, CropIcon, SubtitleIcon }
 import './Toolbar.css'
 
 const SPEED_PRESETS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4]
+const STABILIZE_LEVELS: StabilizeLevel[] = ['off', 'light', 'normal', 'strong']
 
 interface Props {
   state: EditorState
@@ -17,6 +19,7 @@ interface Props {
   onSpeedChange: (speed: number) => void
   onSpeedChangeLive: (speed: number) => void
   onCommit: () => void
+  onStabilizeChange: (level: StabilizeLevel) => void
   onMuteToggle: () => void
   onCropToggle: () => void
   onCropReset: () => void
@@ -25,7 +28,7 @@ interface Props {
   onSubtitlesToggle: () => void
 }
 
-function Toolbar({ state, showCrop, showFilters, showGeometry, showSubtitles, onSpeedChange, onSpeedChangeLive, onCommit, onMuteToggle, onCropToggle, onCropReset, onFilterToggle, onGeometryToggle, onSubtitlesToggle }: Props) {
+function Toolbar({ state, showCrop, showFilters, showGeometry, showSubtitles, onSpeedChange, onSpeedChangeLive, onCommit, onStabilizeChange, onMuteToggle, onCropToggle, onCropReset, onFilterToggle, onGeometryToggle, onSubtitlesToggle }: Props) {
   const { t, lang } = useT()
   const activeFilter = getFilterById(state.filter)
   const geometryActive = state.rotation !== 0 || state.straighten !== 0 || state.perspectiveHorizontal !== 0 || state.perspectiveVertical !== 0
@@ -153,6 +156,26 @@ function Toolbar({ state, showCrop, showFilters, showGeometry, showSubtitles, on
             {t.crop_set}
           </button>
         )}
+      </div>
+
+      <div className="tool-divider" />
+
+      {/* Stabilisation: analysed and applied at export */}
+      <div className="tool-section">
+        <div className="tool-label">{t.tool_stabilize}</div>
+        <div className="stab-options" role="group" aria-label={t.tool_stabilize}>
+          {STABILIZE_LEVELS.map(level => (
+            <button
+              key={level}
+              className={`stab-btn ${state.stabilize === level ? 'active' : ''}`}
+              aria-pressed={state.stabilize === level}
+              onClick={() => onStabilizeChange(level)}
+            >
+              {t[`stabilize_${level}`]}
+            </button>
+          ))}
+        </div>
+        {state.stabilize !== 'off' && <p className="trim-hint">{t.stabilize_hint}</p>}
       </div>
 
       <div className="tool-divider" />

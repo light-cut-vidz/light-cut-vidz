@@ -145,7 +145,18 @@ function createFfmpeg({ ffmpegPath, spawn = nodeSpawn }) {
     })
   }
 
-  return { run, probe }
+  /** stdout of a short ffmpeg query such as `-filters` (resolves '' if it cannot run). */
+  function query(args) {
+    return new Promise((resolve) => {
+      const child = spawn(ffmpegPath, ['-hide_banner', '-nostdin', ...args], { stdio: ['ignore', 'pipe', 'ignore'] })
+      let out = ''
+      child.stdout.on('data', (c) => { out += c })
+      child.on('error', () => resolve(''))
+      child.on('close', () => resolve(out))
+    })
+  }
+
+  return { run, probe, query }
 }
 
 module.exports = { createFfmpeg, parseMediaInfo, splitTopLevel }

@@ -8,13 +8,67 @@ import './ExportModal.css'
 interface Props {
   state: EditorState
   onClose: () => void
+  /** Called after the export was added to the queue (the dialog then closes). */
+  onQueued?: () => void
 }
 
 type Format = 'mp4' | 'mov' | 'webm' | 'avi' | 'gif'
+type Quality = 'high' | 'balanced' | 'small'
 
-export default function ExportModal({ state, onClose }: Props) {
+const QUALITIES: Quality[] = ['high', 'balanced', 'small']
+const RESOLUTIONS = [2160, 1440, 1080, 720, 480, 360]
+const GIF_WIDTHS = [240, 320, 480, 640, 800]
+const GIF_FPS = [8, 10, 12, 15, 20, 25]
+const HARDWARE_FORMATS: Format[] = ['mp4', 'mov', 'avi']
+
+interface Prefs {
+  format: Format
+  quality: Quality
+  resolution: number | null
+  gifWidth: number
+  gifFps: number
+  hardware: boolean
+}
+const DEFAULT_PREFS: Prefs = { format: 'mp4', quality: 'balanced', resolution: null, gifWidth: 480, gifFps: 15, hardware: true }
+const PREFS_KEY = 'lcv_export_prefs'
+
+/** Last used choices, validated: a stale or hand-edited value falls back to its default. */
+function loadPrefs(): Prefs {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')
+    return {
+      format: ['mp4', 'mov', 'webm', 'avi', 'gif'].includes(raw.format) ? raw.format : DEFAULT_PREFS.format,
+      quality: QUALITIES.includes(raw.quality) ? raw.quality : DEFAULT_PREFS.quality,
+      resolution: RESOLUTIONS.includes(raw.resolution) ? raw.resolution : null,
+      gifWidth: GIF_WIDTHS.includes(raw.gifWidth) ? raw.gifWidth : DEFAULT_PREFS.gifWidth,
+      gifFps: GIF_FPS.includes(raw.gifFps) ? raw.gifFps : DEFAULT_PREFS.gifFps,
+      hardware: raw.hardware !== false,
+    }
+  } catch {
+    return DEFAULT_PREFS
+  }
+}
+
+export default function ExportModal({ state, onClose, onQueued }: Props) {
   const { t, lang } = useT()
-  const [format, setFormat] = useState<Format>('mp4')
+  const [prefs, setPrefs] = useState<Prefs>(loadPrefs)
+  const { format, quality, resolution, gifWidth, gifFps } = prefs
+  const update = (patch: Partial<Prefs>) => setPrefs(p => {
+    const next = { ...p, ...patch }
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(next)) } catch { /* not remembered */ }
+    return next
+  })
+  const setFormat = (f: Format) => update({ format: f })
+
+  // What this machine's ffmpeg can do: hardware encoders (probed) and stabilisation.
+  const [caps, setCaps] = useState<{ hardware: string[]; stabilization: boolean }>({ hardware: [], stabilization: true })
+  useEffect(() => {
+    let cancelled = false
+    window.electronAPI.getCapabilities().then(c => { if (!cancelled) setCaps(c) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+  const hardwareId = caps.hardware[0] ?? null
+  const hardwareApplies = !!hardwareId && HARDWARE_FORMATS.includes(format)
   const [progress, setProgress] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
@@ -44,7 +98,31 @@ export default function ExportModal({ state, onClose }: Props) {
   // Closing mid-export would leave it running with no way to see or stop it.
   const requestClose = () => { if (!exporting) onClose() }
 
-  const handleExport = async () => {
+  const buildOptions = (savePath: string) => ({
+    inputPath: state.videoPath as string,
+    outputPath: savePath,
+    segments: keptSegments,
+    speed: state.speed,
+    crop: state.crop,
+    filter: state.filter,
+    rotation: state.rotation,
+    straighten: state.straighten,
+    perspectiveH: state.perspectiveHorizontal,
+    perspectiveV: state.perspectiveVertical,
+    muted: state.muted,
+    format,
+    quality,
+    resolution: format === 'gif' ? null : resolution,
+    gifWidth,
+    gifFps,
+    stabilize: state.stabilize,
+    hardware: hardwareApplies && prefs.hardware ? hardwareId : null,
+    subtitles: state.subtitles
+      ? { cues: state.subtitles.cues, style: state.subtitles.style, animation: state.subtitles.animation }
+      : null,
+  })
+
+  const handleExport = async (mode: 'now' | 'queue' = 'now') => {
     setError(null)
     setDone(false)
 
@@ -55,26 +133,21 @@ export default function ExportModal({ state, onClose }: Props) {
     const savePath = await window.electronAPI.saveVideo(`${baseName}_edit.${format}`, format)
     if (!savePath) return
 
+    if (mode === 'queue') {
+      try {
+        await window.electronAPI.queueAdd(buildOptions(savePath))
+        onQueued?.()
+        onClose()
+      } catch (err: unknown) {
+        setError((err instanceof Error ? err.message : String(err)).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+      }
+      return
+    }
+
     setProgress(0)
 
     try {
-      const result = await window.electronAPI.exportVideo({
-        inputPath: state.videoPath,
-        outputPath: savePath,
-        segments: keptSegments,
-        speed: state.speed,
-        crop: state.crop,
-        filter: state.filter,
-        rotation: state.rotation,
-        straighten: state.straighten,
-        perspectiveH: state.perspectiveHorizontal,
-        perspectiveV: state.perspectiveVertical,
-        muted: state.muted,
-        format,
-        subtitles: state.subtitles
-          ? { cues: state.subtitles.cues, style: state.subtitles.style, animation: state.subtitles.animation }
-          : null,
-      })
+      const result = await window.electronAPI.exportVideo(buildOptions(savePath))
       setDone(true)
       setOutputPath(result.outputPath)
     } catch (err: unknown) {
@@ -134,6 +207,12 @@ export default function ExportModal({ state, onClose }: Props) {
                 : t.export_cuts_none}
             </span>
           </div>
+          {state.stabilize !== 'off' && (
+            <div className="summary-row">
+              <span className="summary-label">{t.export_stabilization}</span>
+              <span className="summary-value">{t[`stabilize_${state.stabilize}`]}</span>
+            </div>
+          )}
           <div className="summary-row">
             <span className="summary-label">{t.export_subtitles}</span>
             <span className="summary-value">
@@ -155,6 +234,56 @@ export default function ExportModal({ state, onClose }: Props) {
               <div className="format-desc">{f.desc}</div>
             </button>
           ))}
+        </div>
+
+        {/* Quality, size and speed */}
+        <div className="export-options">
+          <div className="opt-row">
+            <span className="opt-label">{t.export_quality}</span>
+            <div className="seg" role="group" aria-label={t.export_quality}>
+              {QUALITIES.map(q => (
+                <button key={q} className={`seg-btn ${quality === q ? 'active' : ''}`} aria-pressed={quality === q} disabled={exporting} onClick={() => update({ quality: q })}>
+                  {t[`quality_${q}`]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {format !== 'gif' ? (
+            <div className="opt-row">
+              <label className="opt-label" htmlFor="opt-resolution">{t.export_resolution}</label>
+              <select id="opt-resolution" className="opt-select" value={resolution ?? ''} disabled={exporting}
+                onChange={e => update({ resolution: e.target.value === '' ? null : Number(e.target.value) })}>
+                <option value="">{t.resolution_original}</option>
+                {RESOLUTIONS.map(r => <option key={r} value={r}>{r}p</option>)}
+              </select>
+            </div>
+          ) : (
+            <>
+              <div className="opt-row">
+                <label className="opt-label" htmlFor="opt-gif-width">{t.export_gif_width}</label>
+                <select id="opt-gif-width" className="opt-select" value={gifWidth} disabled={exporting} onChange={e => update({ gifWidth: Number(e.target.value) })}>
+                  {GIF_WIDTHS.map(w => <option key={w} value={w}>{w}px</option>)}
+                </select>
+              </div>
+              <div className="opt-row">
+                <label className="opt-label" htmlFor="opt-gif-fps">{t.export_gif_fps}</label>
+                <select id="opt-gif-fps" className="opt-select" value={gifFps} disabled={exporting} onChange={e => update({ gifFps: Number(e.target.value) })}>
+                  {GIF_FPS.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+              </div>
+            </>
+          )}
+
+          {hardwareApplies && (
+            <div className="opt-row">
+              <label className="opt-label" htmlFor="opt-hardware">{t.export_hardware}</label>
+              <label className="opt-check" title={t.export_hardware_hint}>
+                <input id="opt-hardware" type="checkbox" checked={prefs.hardware} disabled={exporting} onChange={e => update({ hardware: e.target.checked })} />
+                <span>{t[`hw_${hardwareId as 'videotoolbox' | 'nvenc' | 'qsv' | 'vaapi'}`] ?? hardwareId}</span>
+              </label>
+            </div>
+          )}
         </div>
 
         {/* Progress */}
@@ -186,9 +315,12 @@ export default function ExportModal({ state, onClose }: Props) {
           ) : (
             <button className="btn-ghost" onClick={onClose}>{t.export_cancel}</button>
           )}
+          <button className="btn-ghost" onClick={() => { void handleExport('queue') }} disabled={exporting || nothingToExport}>
+            {t.export_queue_add}
+          </button>
           <button
             className="btn-primary"
-            onClick={handleExport}
+            onClick={() => { void handleExport('now') }}
             disabled={exporting || nothingToExport}
           >
             {done ? t.export_again : t.export_btn}

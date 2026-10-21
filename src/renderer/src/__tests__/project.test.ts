@@ -44,3 +44,16 @@ describe('fromProjectState', () => {
     expect(s.subtitles).toBeNull()
   })
 })
+
+describe('stabilisation in a project', () => {
+  it.each(['light', 'normal', 'strong'])('restores %s', (level) => {
+    expect(fromProjectState({ stabilize: level }).stabilize).toBe(level)
+  })
+  it.each([['off'], ['max'], [3], [null], [undefined]])('falls back to off for %j', (v) => {
+    expect(fromProjectState({ stabilize: v }).stabilize).toBe('off')
+  })
+  it('is off by default', () => {
+    expect(defaultEditable.stabilize).toBe('off')
+    expect(fromProjectState(null).stabilize).toBe('off')
+  })
+})

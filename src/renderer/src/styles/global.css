@@ -5,22 +5,60 @@
 }
 
 :root {
+  color-scheme: dark;
   --bg-primary: #0f0f0f;
   --bg-secondary: #1a1a1a;
   --bg-tertiary: #242424;
   --bg-hover: #2e2e2e;
+  --bg-card: #2a2a2a;
   --border: #333;
   --accent: #e05a2b;
   --accent-hover: #f06a3b;
   --text-primary: #f0f0f0;
   --text-secondary: #888;
   --text-muted: #555;
+  --text-soft: #ccc;
   --danger: #e53e3e;
   --success: #48bb78;
+  --select: #007aff;
+  --select-bg: #252d3a;
+  --drop-bg: #1a1208;
+  --tick-minor: rgba(255,255,255,0.06);
+  --hover-marker: rgba(255,255,255,0.5);
   --trim-keep: rgba(255,255,255,0.08);
   --trim-cut: rgba(220, 50, 50, 0.45);
   --trim-cut-border: rgba(220, 50, 50, 0.9);
   --playhead: #e05a2b;
+}
+
+/* The light theme follows prefers-color-scheme. The app sets Electron's
+   nativeTheme from the user's choice (View > Theme), which is what drives this
+   media query: system, light or dark. */
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg-primary: #f2f2f5;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #ebebf0;
+    --bg-hover: #dfdfe6;
+    --bg-card: #f0f0f5;
+    --border: #d3d3dc;
+    --accent: #d9480f;
+    --accent-hover: #c2410c;
+    --text-primary: #1c1c1e;
+    --text-secondary: #5b5b66;
+    --text-muted: #8c8c96;
+    --text-soft: #44444c;
+    --danger: #d32f2f;
+    --success: #2f855a;
+    --select: #0a64d6;
+    --select-bg: #dbe8fb;
+    --drop-bg: #fff1e6;
+    --tick-minor: rgba(0,0,0,0.08);
+    --hover-marker: rgba(0,0,0,0.45);
+    --trim-keep: rgba(0,0,0,0.06);
+    --playhead: #d9480f;
+  }
 }
 
 html, body, #root {

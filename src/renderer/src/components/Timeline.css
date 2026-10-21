@@ -79,7 +79,7 @@
   width: 1px;
 }
 .tl-tick.major { background: var(--border); }
-.tl-tick.minor { background: rgba(255,255,255,0.06); }
+.tl-tick.minor { background: var(--tick-minor); }
 .tl-tick-label {
   position: absolute;
   top: 3px;

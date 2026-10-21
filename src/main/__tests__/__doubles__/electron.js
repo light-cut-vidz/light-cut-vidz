@@ -48,6 +48,7 @@ export const dialog = {
 }
 export const protocol = { registerSchemesAsPrivileged: noop, handle: noop }
 export const net = { fetch: () => Promise.resolve(new Response('')) }
+export const nativeTheme = { themeSource: 'system', shouldUseDarkColors: true }
 export const shell = { openExternal: noop }
 export const Menu = {
   setApplicationMenu: noop,
@@ -57,5 +58,5 @@ export const Menu = {
 
 export default {
   app, BrowserWindow, ipcMain, ipcRenderer, contextBridge, webUtils,
-  dialog, protocol, net, shell, Menu,
+  dialog, protocol, net, shell, Menu, nativeTheme,
 }

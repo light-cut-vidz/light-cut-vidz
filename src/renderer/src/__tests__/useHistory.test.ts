@@ -191,3 +191,13 @@ describe('useEditorHistory — no-op edits and bounded memory', () => {
     expect(undone).toBe(200)
   })
 })
+
+describe('useEditorHistory — stabilisation', () => {
+  it('is undoable like any other edit', () => {
+    const { result } = renderHook(() => useEditorHistory())
+    act(() => result.current.set(p => ({ ...p, stabilize: 'strong' })))
+    expect(result.current.editable.stabilize).toBe('strong')
+    act(() => result.current.undo())
+    expect(result.current.editable.stabilize).toBe('off')
+  })
+})

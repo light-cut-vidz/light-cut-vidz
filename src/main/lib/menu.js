@@ -2,7 +2,7 @@ const { Menu, BrowserWindow, dialog } = require('electron')
 
 const { videoExtensions: VIDEO_EXTENSIONS } = require('../../shared/constants.json')
 
-function buildMenuTemplate({ t, currentLang, onOpenVideo, onSaveProject, onOpenProject, onUndo, onRedo, onFullscreenEntered, onAbout, onCheckUpdates, onShowChangelog, onSwitchLanguage }) {
+function buildMenuTemplate({ t, currentLang, currentTheme = 'system', recent = [], onOpenRecent, onClearRecent, onSwitchTheme, onOpenVideo, onSaveProject, onOpenProject, onUndo, onRedo, onFullscreenEntered, onAbout, onCheckUpdates, onShowChangelog, onSwitchLanguage }) {
   const isMac = process.platform === 'darwin'
 
   return [
@@ -38,6 +38,19 @@ function buildMenuTemplate({ t, currentLang, onOpenVideo, onSaveProject, onOpenP
         },
         { type: 'separator' },
         { label: t('menu_save_project'), accelerator: 'CmdOrCtrl+S', click: () => onSaveProject && onSaveProject(BrowserWindow.getFocusedWindow()) },
+        {
+          label: t('menu_open_recent'),
+          enabled: recent.length > 0,
+          submenu: [
+            ...recent.map(item => ({
+              label: `${item.kind === 'project' ? '◆ ' : ''}${require('path').basename(item.path)}`,
+              toolTip: item.path,
+              click: () => onOpenRecent && onOpenRecent(item.path),
+            })),
+            { type: 'separator' },
+            { label: t('menu_clear_recent'), click: () => onClearRecent && onClearRecent() },
+          ],
+        },
         { label: t('menu_open_project'), accelerator: 'CmdOrCtrl+Shift+O', click: () => onOpenProject && onOpenProject(BrowserWindow.getFocusedWindow()) },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },
@@ -83,6 +96,16 @@ function buildMenuTemplate({ t, currentLang, onOpenVideo, onSaveProject, onOpenP
             win.setFullScreen(entering)
             if (entering) onFullscreenEntered(win)
           },
+        },
+        {
+          label: t('menu_theme'),
+          submenu: ['system', 'light', 'dark'].map(theme => ({
+            id: `theme-${theme}`,
+            label: t(`theme_${theme}`),
+            type: 'radio',
+            checked: currentTheme === theme,
+            click: () => onSwitchTheme && onSwitchTheme(theme),
+          })),
         },
       ],
     },

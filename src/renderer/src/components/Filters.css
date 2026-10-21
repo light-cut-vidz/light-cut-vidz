@@ -1,8 +1,8 @@
 .filters-panel {
   padding: 12px;
-  background: #1a1a1a;
+  background: var(--bg-secondary);
   overflow-y: auto;
-  border-left: 1px solid #333;
+  border-left: 1px solid var(--border);
 }
 
 .filters-grid {
@@ -12,7 +12,7 @@
 }
 
 .filter-card {
-  background: #2a2a2a;
+  background: var(--bg-card);
   border: 2px solid transparent;
   border-radius: 6px;
   padding: 8px;
@@ -21,18 +21,18 @@
   flex-direction: column;
   align-items: center;
   transition: all 0.2s ease;
-  color: #ccc;
+  color: var(--text-soft);
 }
 
 .filter-card:hover {
-  background: #333;
-  color: #fff;
+  background: var(--border);
+  color: var(--text-primary);
 }
 
 .filter-card.active {
-  border-color: #007aff;
-  background: #252d3a;
-  color: #fff;
+  border-color: var(--select);
+  background: var(--select-bg);
+  color: var(--text-primary);
 }
 
 .filter-preview-box {
@@ -58,7 +58,7 @@
 .preview-placeholder {
   font-weight: bold;
   font-size: 14px;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .filter-preview-img {

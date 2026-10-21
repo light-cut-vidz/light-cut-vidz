@@ -266,5 +266,6 @@ module.exports = {
   toAssTime,
   buildAssContent,
   buildSubtitlesFilter,
+  escapeForFfmpegFilter,
   RAINBOW_PALETTE,
 }

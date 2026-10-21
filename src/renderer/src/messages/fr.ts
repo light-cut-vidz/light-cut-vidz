@@ -53,7 +53,7 @@ export const fr: Translations = {
   format_mov_desc: 'Apple QuickTime',
   format_webm_desc: 'VP9 – Optimisé web',
   format_avi_desc: 'Héritage Windows',
-  format_gif_desc: 'Image animée (480px de large)',
+  format_gif_desc: 'Image animée',
 
   // Timeline
   tl_trim: 'COUPES',
@@ -135,4 +135,54 @@ export const fr: Translations = {
   changelog_close: 'Fermer',
   changelog_empty: 'Aucun journal des modifications disponible.',
   changelog_version: (v: string) => `Version ${v}`,
+  // Stabilisation
+  tool_stabilize: 'Stabilisation',
+  stabilize_off: 'Aucune',
+  stabilize_light: 'Légère',
+  stabilize_normal: 'Normale',
+  stabilize_strong: 'Forte',
+  stabilize_hint: 'Appliquée à l\'export (ajoute une passe d\'analyse).',
+  // Options d'export
+  export_quality: 'Qualité',
+  quality_high: 'Haute',
+  quality_balanced: 'Équilibrée',
+  quality_small: 'Petit fichier',
+  export_resolution: 'Résolution',
+  resolution_original: 'Originale',
+  export_gif_width: 'Largeur',
+  export_gif_fps: 'Images/s',
+  export_hardware: 'Accélération matérielle',
+  export_hardware_hint: 'Encodage H.264 plus rapide sur le GPU de cet ordinateur. Repasse en logiciel en cas d\'échec.',
+  hw_videotoolbox: 'Apple VideoToolbox',
+  hw_nvenc: 'NVIDIA NVENC',
+  hw_qsv: 'Intel Quick Sync',
+  hw_vaapi: 'VAAPI',
+  export_stabilization: 'Stabilisation',
+  export_queue_add: 'Ajouter à la file',
+  export_queued: 'Ajouté à la file d\'export',
+
+  // File d'export
+  queue_title: 'File d\'export',
+  queue_button: (active: number) => `Exports · ${active}`,
+  queue_idle: 'Exports terminés',
+  queue_waiting: (n: number) => `${n} en attente`,
+  queue_empty: 'Aucun export pour le moment.',
+  queue_status_queued: 'En attente',
+  queue_status_running: 'Export en cours',
+  queue_status_done: 'Terminé',
+  queue_status_error: 'Échec',
+  queue_status_cancelled: 'Annulé',
+  queue_cancel: 'Annuler',
+  queue_show: 'Afficher dans le dossier',
+  queue_clear: 'Effacer les terminés',
+  queue_close: 'Fermer',
+
+  // Fichiers récents
+  recent_title: 'Récents',
+  recent_project: 'Projet',
+  recent_clear: 'Effacer',
+  recent_remove: 'Retirer de la liste',
+
+  // Thème
+  theme_label: 'Thème',
 }

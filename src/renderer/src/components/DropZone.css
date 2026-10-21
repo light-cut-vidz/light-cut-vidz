@@ -9,7 +9,7 @@
 }
 
 .dropzone.dragging {
-  background: #1a1208;
+  background: var(--drop-bg);
   outline: 2px dashed var(--accent);
   outline-offset: -16px;
 }

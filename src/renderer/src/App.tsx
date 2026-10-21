@@ -15,7 +15,8 @@ import { useEditorHistory } from './hooks/useHistory'
 import { getKeptSegments, getVirtualDuration, realToVirtual, virtualToReal } from './utils/time'
 import { isVideoFileName } from './utils/video'
 import { toProject, fromProjectState } from './utils/project'
-import type { EditableState } from './hooks/useHistory'
+import type { RecentEntry } from './electron'
+import type { EditableState, StabilizeLevel } from './hooks/useHistory'
 import type { SubtitleCue } from './utils/srt'
 import { useT } from './i18n'
 import './styles/App.css'
@@ -89,6 +90,7 @@ export interface EditorState {
   perspectiveHorizontal: number
   perspectiveVertical: number
   subtitles: SubtitlesState | null
+  stabilize: StabilizeLevel
 }
 
 type ActivePanel = 'crop' | 'filters' | 'geometry' | 'subtitles' | null
@@ -112,6 +114,7 @@ export default function App() {
   const [filterFrameUrl, setFilterFrameUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState<{ msg: string; progress: number } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [recent, setRecent] = useState<RecentEntry[]>([])
   const videoRef = useRef<HTMLVideoElement | null>(null)
 
   const { editable, set, setLive, endGesture, undo, redo, reset, canUndo, canRedo } = useEditorHistory()
@@ -148,6 +151,7 @@ export default function App() {
   const toggleMuted = useCallback(() => set(p => ({ ...p, muted: !p.muted })), [set])
   const setCrop = useCallback((crop: CropRect | null) => set(p => ({ ...p, crop })), [set])
   const setCutSegments = useCallback((cutSegments: TrimSegment[]) => set(p => ({ ...p, cutSegments })), [set])
+  const setStabilize = useCallback((stabilize: StabilizeLevel) => set(p => ({ ...p, stabilize })), [set])
   const setFilter = useCallback((filter: string) => set(p => ({ ...p, filter })), [set])
   const setRotation = useCallback((rotation: number) => set(p => ({ ...p, rotation })), [set])
 
@@ -449,6 +453,14 @@ export default function App() {
   const closeExport = useCallback(() => setShowExport(false), [])
   const onApplyCrop = useCallback(() => setActivePanel(null), [])
   const onToastDone = useCallback(() => setToast(null), [])
+  const onExportQueued = useCallback(() => setToast(t.export_queued), [t])
+  const refreshRecent = useCallback(() => {
+    window.electronAPI.listRecent().then(setRecent).catch(() => setRecent([]))
+  }, [])
+  // The home screen lists what was opened lately; refresh it whenever it is shown.
+  useEffect(() => {
+    if (!videoPath && !loading) refreshRecent()
+  }, [videoPath, loading, refreshRecent])
   const onVideoError = useCallback(() => setToast(t.error_video_unreadable), [t])
   const onSubtitlesError = useCallback(
     (reason: 'empty' | 'read') => setToast(reason === 'empty' ? t.subtitles_empty : t.subtitles_error),
@@ -469,6 +481,7 @@ export default function App() {
     perspectiveHorizontal: editable.perspectiveHorizontal,
     perspectiveVertical: editable.perspectiveVertical,
     subtitles: editable.subtitles,
+    stabilize: editable.stabilize,
   }), [videoPath, videoUrl, duration, editable])
 
   if (loading) {
@@ -491,7 +504,15 @@ export default function App() {
   if (!videoPath) {
     return (
       <>
-        <DropZone onDrop={loadVideo} onOpen={handleOpenVideo} onReject={() => setToast(t.error_not_video)} />
+        <DropZone
+          onDrop={loadVideo}
+          onOpen={handleOpenVideo}
+          onReject={() => setToast(t.error_not_video)}
+          recent={recent}
+          onOpenRecent={(p) => { void window.electronAPI.openRecent(p) }}
+          onRemoveRecent={(p) => { void window.electronAPI.removeRecent(p).then(refreshRecent) }}
+          onClearRecent={() => { void window.electronAPI.clearRecent().then(refreshRecent) }}
+        />
         {toast && <Toast key={toast} message={toast} onDone={onToastDone} />}
       </>
     )
@@ -570,6 +591,7 @@ export default function App() {
           onSpeedChange={setSpeed}
           onSpeedChangeLive={setSpeedLive}
           onCommit={endGesture}
+          onStabilizeChange={setStabilize}
           onMuteToggle={toggleMuted}
           onCropToggle={onCropToggle}
           onCropReset={onCropReset}
@@ -644,7 +666,7 @@ export default function App() {
 
       {showExport && (
         <Suspense fallback={null}>
-          <ExportModal state={editorState} onClose={closeExport} />
+          <ExportModal state={editorState} onClose={closeExport} onQueued={onExportQueued} />
         </Suspense>
       )}
 

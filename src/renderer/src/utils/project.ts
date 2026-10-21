@@ -57,5 +57,6 @@ export function fromProjectState(raw: unknown): EditableState {
     perspectiveHorizontal: num('perspectiveHorizontal', -45, 45, d.perspectiveHorizontal),
     perspectiveVertical: num('perspectiveVertical', -45, 45, d.perspectiveVertical),
     subtitles,
+    stabilize: raw.stabilize === 'light' || raw.stabilize === 'normal' || raw.stabilize === 'strong' ? raw.stabilize : 'off',
   }
 }

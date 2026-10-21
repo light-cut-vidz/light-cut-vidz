@@ -1,5 +1,23 @@
 export {}
 
+export interface QueueJob {
+  id: number
+  name: string
+  format: string
+  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
+  progress: number
+  outputPath: string
+  error: string | null
+}
+
+export interface RecentEntry {
+  kind: 'project' | 'video'
+  path: string
+  name: string
+  dir: string
+  openedAt: number
+}
+
 declare global {
   const __APP_VERSION__: string
   interface Window {
@@ -9,6 +27,19 @@ declare global {
       openVideo: () => Promise<string | null>
       saveVideo: (defaultName?: string, format?: string) => Promise<string | null>
       cancelFfmpeg: () => Promise<void>
+      getCapabilities: () => Promise<{ hardware: string[]; stabilization: boolean }>
+      queueAdd: (options: unknown) => Promise<{ id: number }>
+      queueList: () => Promise<QueueJob[]>
+      queueCancel: (id: number) => Promise<boolean>
+      queueClearFinished: () => Promise<void>
+      queueReveal: (id: number) => Promise<void>
+      onQueueUpdate: (callback: (jobs: QueueJob[]) => void) => () => void
+      listRecent: () => Promise<RecentEntry[]>
+      openRecent: (path: string) => Promise<void>
+      removeRecent: (path: string) => Promise<void>
+      clearRecent: () => Promise<void>
+      getSettings: () => Promise<{ theme: 'system' | 'light' | 'dark' }>
+      setTheme: (theme: 'system' | 'light' | 'dark') => Promise<void>
       getChangelog: (lang: string) => Promise<{ version: string; date: string; body: string }[]>
       onMenuShowChangelog: (callback: () => void) => () => void
       saveProject: (project: { videoPath: string; state: unknown }) => Promise<string | null>
@@ -31,6 +62,12 @@ declare global {
         perspectiveV?: number
         muted: boolean
         format: string
+        quality?: 'high' | 'balanced' | 'small'
+        resolution?: number | null
+        stabilize?: 'off' | 'light' | 'normal' | 'strong'
+        hardware?: string | null
+        gifWidth?: number
+        gifFps?: number
         subtitles?: {
           cues: { id: number; start: number; end: number; text: string }[]
           style: {

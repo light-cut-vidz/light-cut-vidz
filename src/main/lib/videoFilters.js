@@ -56,15 +56,23 @@ const EVEN_DIMENSIONS = 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
 // coordinates only mean something in the source's own pixel space. Applied
 // after a rotation it would be out of bounds (90°) or cut the wrong area
 // (straighten, which enlarges the canvas).
-function buildVideoFilters({ rotation = 0, straighten = 0, perspectiveH = 0, perspectiveV = 0, crop = null, colorFilter = '', speed = 1 } = {}) {
-  return [
+// Never upscales: a 4K clip exported at "1080p" is scaled down, a 480p clip
+// stays 480p. `-2` keeps the width even.
+function resolutionFilter(maxHeight) {
+  if (!maxHeight) return null
+  return `scale=-2:'min(${maxHeight},ih)'`
+}
+
+function buildVideoFilters({ rotation = 0, straighten = 0, perspectiveH = 0, perspectiveV = 0, crop = null, colorFilter = '', speed = 1, maxHeight = null } = {}) {
+  return /** @type {string[]} */ ([
     cropFilter(crop),
     rotationFilter(rotation + straighten),
     perspectiveFilter(perspectiveH, perspectiveV),
     colorFilter || null,
     speedFilter(speed),
+    resolutionFilter(maxHeight),
     EVEN_DIMENSIONS,
-  ].filter(Boolean)
+  ].filter(Boolean))
 }
 
-module.exports = { toEven, rotationFilter, perspectiveFilter, cropFilter, speedFilter, buildVideoFilters, EVEN_DIMENSIONS }
+module.exports = { resolutionFilter, toEven, rotationFilter, perspectiveFilter, cropFilter, speedFilter, buildVideoFilters, EVEN_DIMENSIONS }

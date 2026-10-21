@@ -2,6 +2,8 @@ import React, { useCallback, useState } from 'react'
 import { useT } from '../i18n'
 import { VideoIcon } from './icons'
 import { isVideoFileName } from '../utils/video'
+import RecentList from './RecentList'
+import type { RecentEntry } from '../electron'
 import './DropZone.css'
 
 interface Props {
@@ -9,9 +11,13 @@ interface Props {
   onOpen: () => void
   /** Called with the dropped file's name when it is not a video. */
   onReject?: (name: string) => void
+  recent?: RecentEntry[]
+  onOpenRecent?: (path: string) => void
+  onRemoveRecent?: (path: string) => void
+  onClearRecent?: () => void
 }
 
-export default function DropZone({ onDrop, onOpen, onReject }: Props) {
+export default function DropZone({ onDrop, onOpen, onReject, recent = [], onOpenRecent, onRemoveRecent, onClearRecent }: Props) {
   const { t } = useT()
   const [dragging, setDragging] = useState(false)
 
@@ -51,6 +57,7 @@ export default function DropZone({ onDrop, onOpen, onReject }: Props) {
         <button className="dropzone-btn" onClick={onOpen}>
           {t.dropzone_browse}
         </button>
+        <RecentList items={recent} onOpen={p => onOpenRecent?.(p)} onRemove={p => onRemoveRecent?.(p)} onClear={() => onClearRecent?.()} />
         <p className="dropzone-formats">MP4 · MOV · AVI · MKV · WebM · FLV · M4V</p>
       </div>
     </div>

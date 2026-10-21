@@ -51,7 +51,7 @@ export const en = {
   format_mov_desc: 'Apple QuickTime',
   format_webm_desc: 'VP9 – Web optimized',
   format_avi_desc: 'Windows legacy',
-  format_gif_desc: 'Animated image (480px wide)',
+  format_gif_desc: 'Animated image',
 
   // Timeline
   tl_trim: 'TRIM',
@@ -133,6 +133,56 @@ export const en = {
   changelog_close: 'Close',
   changelog_empty: 'No changelog available.',
   changelog_version: (v: string) => `Version ${v}`,
+  // Stabilisation
+  tool_stabilize: 'Stabilization',
+  stabilize_off: 'Off',
+  stabilize_light: 'Light',
+  stabilize_normal: 'Normal',
+  stabilize_strong: 'Strong',
+  stabilize_hint: 'Applied when you export (adds an analysis pass).',
+  // Export options
+  export_quality: 'Quality',
+  quality_high: 'High',
+  quality_balanced: 'Balanced',
+  quality_small: 'Small file',
+  export_resolution: 'Resolution',
+  resolution_original: 'Original',
+  export_gif_width: 'Width',
+  export_gif_fps: 'Frames/s',
+  export_hardware: 'Hardware acceleration',
+  export_hardware_hint: 'Faster H.264 encoding on this computer\'s GPU. Falls back to software if it fails.',
+  hw_videotoolbox: 'Apple VideoToolbox',
+  hw_nvenc: 'NVIDIA NVENC',
+  hw_qsv: 'Intel Quick Sync',
+  hw_vaapi: 'VAAPI',
+  export_stabilization: 'Stabilization',
+  export_queue_add: 'Add to queue',
+  export_queued: 'Added to the export queue',
+
+  // Export queue
+  queue_title: 'Export queue',
+  queue_button: (active: number) => `Exports · ${active}`,
+  queue_idle: 'Exports finished',
+  queue_waiting: (n: number) => `${n} waiting`,
+  queue_empty: 'No exports yet.',
+  queue_status_queued: 'Waiting',
+  queue_status_running: 'Exporting',
+  queue_status_done: 'Done',
+  queue_status_error: 'Failed',
+  queue_status_cancelled: 'Cancelled',
+  queue_cancel: 'Cancel',
+  queue_show: 'Show in folder',
+  queue_clear: 'Clear finished',
+  queue_close: 'Close',
+
+  // Recent files
+  recent_title: 'Recent',
+  recent_project: 'Project',
+  recent_clear: 'Clear',
+  recent_remove: 'Remove from the list',
+
+  // Theme
+  theme_label: 'Theme',
 }
 
 export type Translations = typeof en

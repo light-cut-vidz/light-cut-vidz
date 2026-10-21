@@ -19,6 +19,7 @@ const baseState: EditorState = {
   perspectiveHorizontal: 0,
   perspectiveVertical: 0,
   subtitles: null,
+  stabilize: 'off',
 }
 
 function r(state: Partial<EditorState> = {}, onClose = vi.fn()) {
@@ -263,6 +264,220 @@ describe('ExportModal — fixes', () => {
       const { container } = await running()
       await act(async () => { finish!() })
       expect(container.querySelector('.export-done')?.textContent).toContain('/tmp/out.mp4')
+    })
+  })
+})
+
+// ── Quality, resolution, GIF, hardware, queue ───────────────────────────────
+
+describe('ExportModal — export options', () => {
+  let storage: Record<string, string>
+  beforeEach(() => {
+    storage = {}
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: { getItem: (k: string) => storage[k] ?? null, setItem: (k: string, v: string) => { storage[k] = v }, removeItem: () => {}, clear: () => {}, length: 0, key: () => null },
+    })
+    window.electronAPI = {
+      ...window.electronAPI,
+      onProgress: () => () => {},
+      getCapabilities: vi.fn().mockResolvedValue({ hardware: [], stabilization: true }),
+      saveVideo: vi.fn().mockResolvedValue('/tmp/out.mp4'),
+      exportVideo: vi.fn().mockResolvedValue({ success: true, outputPath: '/tmp/out.mp4' }),
+      queueAdd: vi.fn().mockResolvedValue({ id: 1 }),
+    }
+  })
+
+  const exportBtn = () => screen.getByRole('button', { name: /^export(er)?$/i })
+  const payload = async () => {
+    fireEvent.click(exportBtn())
+    await waitFor(() => expect(window.electronAPI.exportVideo).toHaveBeenCalled())
+    return vi.mocked(window.electronAPI.exportVideo).mock.calls[0][0]
+  }
+  const pickFormat = (label: string) => fireEvent.click(Array.from(document.querySelectorAll('.format-card')).find(c => c.textContent?.includes(label))!)
+
+  it('exports with balanced quality, original size and no hardware by default', async () => {
+    r()
+    expect(await payload()).toMatchObject({ quality: 'balanced', resolution: null, hardware: null, stabilize: 'off', gifWidth: 480, gifFps: 15 })
+  })
+
+  it('sends the chosen quality', async () => {
+    r()
+    fireEvent.click(screen.getByRole('button', { name: /^small file$|^petit fichier$/i }))
+    expect((await payload()).quality).toBe('small')
+  })
+
+  it('shows the quality choice with the current one pressed', () => {
+    r()
+    expect(screen.getByRole('button', { name: /^balanced$|^équilibrée$/i }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: /^high$|^haute$/i }).getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('sends the chosen resolution as a height', async () => {
+    r()
+    fireEvent.change(document.getElementById('opt-resolution')!, { target: { value: '720' } })
+    expect((await payload()).resolution).toBe(720)
+  })
+
+  it('offers "original" and never sends a resolution for it', async () => {
+    r()
+    fireEvent.change(document.getElementById('opt-resolution')!, { target: { value: '1080' } })
+    fireEvent.change(document.getElementById('opt-resolution')!, { target: { value: '' } })
+    expect((await payload()).resolution).toBeNull()
+  })
+
+  describe('GIF', () => {
+    it('replaces the resolution by a width and a frame rate', () => {
+      r(); pickFormat('GIF')
+      expect(document.getElementById('opt-resolution')).toBeNull()
+      expect(document.getElementById('opt-gif-width')).toBeTruthy()
+      expect(document.getElementById('opt-gif-fps')).toBeTruthy()
+    })
+
+    it('sends them, and no resolution', async () => {
+      r(); pickFormat('GIF')
+      fireEvent.change(document.getElementById('opt-gif-width')!, { target: { value: '320' } })
+      fireEvent.change(document.getElementById('opt-gif-fps')!, { target: { value: '10' } })
+      expect(await payload()).toMatchObject({ format: 'gif', gifWidth: 320, gifFps: 10, resolution: null })
+    })
+
+    it('keeps the resolution choice for video when switching back', async () => {
+      r()
+      fireEvent.change(document.getElementById('opt-resolution')!, { target: { value: '480' } })
+      pickFormat('GIF'); pickFormat('WebM')
+      expect((document.getElementById('opt-resolution') as HTMLSelectElement).value).toBe('480')
+    })
+  })
+
+  describe('hardware acceleration', () => {
+    it('is not offered when this machine has none', async () => {
+      r()
+      await waitFor(() => expect(window.electronAPI.getCapabilities).toHaveBeenCalled())
+      expect(document.getElementById('opt-hardware')).toBeNull()
+    })
+
+    it('is offered, named after the encoder, and on by default when one works', async () => {
+      window.electronAPI.getCapabilities = vi.fn().mockResolvedValue({ hardware: ['videotoolbox'], stabilization: true })
+      r()
+      const box = await waitFor(() => { const el = document.getElementById('opt-hardware') as HTMLInputElement; expect(el).toBeTruthy(); return el })
+      expect(box.checked).toBe(true)
+      expect(document.querySelector('.opt-check')?.textContent).toContain('VideoToolbox')
+    })
+
+    it('sends the encoder when enabled and null when the user turns it off', async () => {
+      window.electronAPI.getCapabilities = vi.fn().mockResolvedValue({ hardware: ['nvenc'], stabilization: true })
+      r()
+      const box = await waitFor(() => { const el = document.getElementById('opt-hardware') as HTMLInputElement; expect(el).toBeTruthy(); return el })
+      fireEvent.click(box)
+      expect((await payload()).hardware).toBeNull()
+    })
+
+    it('uses the encoder by default', async () => {
+      window.electronAPI.getCapabilities = vi.fn().mockResolvedValue({ hardware: ['nvenc'], stabilization: true })
+      r()
+      await waitFor(() => expect(document.getElementById('opt-hardware')).toBeTruthy())
+      expect((await payload()).hardware).toBe('nvenc')
+    })
+
+    it('is hidden for formats it cannot encode (WebM, GIF)', async () => {
+      window.electronAPI.getCapabilities = vi.fn().mockResolvedValue({ hardware: ['nvenc'], stabilization: true })
+      r()
+      await waitFor(() => expect(document.getElementById('opt-hardware')).toBeTruthy())
+      pickFormat('WebM')
+      expect(document.getElementById('opt-hardware')).toBeNull()
+      pickFormat('GIF')
+      expect(document.getElementById('opt-hardware')).toBeNull()
+    })
+
+    it('copes with the capability probe failing', async () => {
+      window.electronAPI.getCapabilities = vi.fn().mockRejectedValue(new Error('x'))
+      r()
+      await waitFor(() => expect(window.electronAPI.getCapabilities).toHaveBeenCalled())
+      expect(document.getElementById('opt-hardware')).toBeNull()
+    })
+  })
+
+  it('passes the stabilisation level of the editor', async () => {
+    r({ stabilize: 'strong' })
+    expect((await payload()).stabilize).toBe('strong')
+  })
+
+  it('shows the stabilisation level in the summary, only when it is on', () => {
+    const off = r({ stabilize: 'off' }).container.textContent
+    expect(off).not.toMatch(/stabili[sz]ation/i)
+    const on = r({ stabilize: 'normal' }).container.textContent
+    expect(on).toMatch(/stabili[sz]ation/i)
+  })
+
+  describe('remembered choices', () => {
+    it('saves quality, format and size for next time', () => {
+      r()
+      fireEvent.click(screen.getByRole('button', { name: /^high$|^haute$/i }))
+      pickFormat('WebM')
+      fireEvent.change(document.getElementById('opt-resolution')!, { target: { value: '720' } })
+      expect(JSON.parse(storage.lcv_export_prefs)).toMatchObject({ quality: 'high', format: 'webm', resolution: 720 })
+    })
+
+    it('restores them when the dialog opens again', () => {
+      storage.lcv_export_prefs = JSON.stringify({ format: 'mov', quality: 'small', resolution: 480, gifWidth: 320, gifFps: 10, hardware: false })
+      const { container } = r()
+      expect(container.querySelector('.format-card.selected')?.textContent).toContain('MOV')
+      expect(screen.getByRole('button', { name: /^small file$|^petit fichier$/i }).getAttribute('aria-pressed')).toBe('true')
+      expect((document.getElementById('opt-resolution') as HTMLSelectElement).value).toBe('480')
+    })
+
+    it.each([
+      ['corrupt JSON', '{{{'],
+      ['wrong types', JSON.stringify({ format: 'exe', quality: 3, resolution: 'x', gifWidth: 1, gifFps: -1 })],
+    ])('falls back to the defaults for %s', (_n, value) => {
+      storage.lcv_export_prefs = value
+      const { container } = r()
+      expect(container.querySelector('.format-card.selected')?.textContent).toContain('MP4')
+      expect(screen.getByRole('button', { name: /^balanced$|^équilibrée$/i }).getAttribute('aria-pressed')).toBe('true')
+    })
+
+    it('survives unavailable storage', () => {
+      Object.defineProperty(window, 'localStorage', { configurable: true, get() { throw new Error('denied') } })
+      expect(() => r()).not.toThrow()
+    })
+  })
+
+  describe('add to queue', () => {
+    it('asks for a file, queues the export and closes the dialog without waiting for it', async () => {
+      const onClose = vi.fn()
+      const onQueued = vi.fn()
+      render(<LangProvider><ExportModal state={baseState} onClose={onClose} onQueued={onQueued} /></LangProvider>)
+      fireEvent.click(screen.getByRole('button', { name: /add to queue|ajouter à la file/i }))
+      await waitFor(() => expect(window.electronAPI.queueAdd).toHaveBeenCalled())
+      expect(window.electronAPI.exportVideo).not.toHaveBeenCalled()
+      expect(vi.mocked(window.electronAPI.queueAdd).mock.calls[0][0]).toMatchObject({ outputPath: '/tmp/out.mp4', format: 'mp4', quality: 'balanced' })
+      expect(onQueued).toHaveBeenCalled()
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('does nothing when the save dialog is cancelled', async () => {
+      window.electronAPI.saveVideo = vi.fn().mockResolvedValue(null)
+      const onClose = vi.fn()
+      render(<LangProvider><ExportModal state={baseState} onClose={onClose} /></LangProvider>)
+      fireEvent.click(screen.getByRole('button', { name: /add to queue|ajouter à la file/i }))
+      await new Promise(res => setTimeout(res, 10))
+      expect(window.electronAPI.queueAdd).not.toHaveBeenCalled()
+      expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('shows the reason and stays open when the job is refused', async () => {
+      window.electronAPI.queueAdd = vi.fn().mockRejectedValue(new Error("Error invoking remote method 'queue:add': Error: Another queued export already writes to that file"))
+      const onClose = vi.fn()
+      const { container } = render(<LangProvider><ExportModal state={baseState} onClose={onClose} /></LangProvider>)
+      fireEvent.click(screen.getByRole('button', { name: /add to queue|ajouter à la file/i }))
+      await waitFor(() => expect(container.querySelector('.export-error')?.textContent).toContain('already writes to that file'))
+      expect(container.querySelector('.export-error')?.textContent).not.toMatch(/invoking/)
+      expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('is disabled when every part is cut', () => {
+      r({ cutSegments: [{ id: 'a', start: 0, end: 100 }] })
+      expect(screen.getByRole('button', { name: /add to queue|ajouter à la file/i })).toBeDisabled()
     })
   })
 })

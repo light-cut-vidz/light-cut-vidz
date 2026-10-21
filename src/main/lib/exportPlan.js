@@ -3,8 +3,12 @@
 // here touches ffmpeg or the disk, so all of it is unit-testable.
 
 const { clampAtempo } = require('./atempo')
+const { escapeForFfmpegFilter } = require('./subtitles')
 
 const FORMATS = ['mp4', 'mov', 'webm', 'avi', 'gif']
+const QUALITIES = ['high', 'balanced', 'small']
+const STABILIZE_LEVELS = ['off', 'light', 'normal', 'strong']
+const HARDWARE_ENCODERS = ['videotoolbox', 'nvenc', 'qsv', 'vaapi']
 const ANIMATIONS = [
   'word-pop', 'word-bounce', 'word-highlight', 'rainbow',
   'sentence-fade', 'sentence-slide', 'typewriter',
@@ -92,6 +96,16 @@ function validateExportOptions(options) {
 
   if (options.filter !== undefined && typeof options.filter !== 'string') fail('filter')
 
+  const quality = options.quality === undefined ? 'balanced' : options.quality
+  if (!QUALITIES.includes(quality)) fail('quality')
+  const stabilize = options.stabilize === undefined ? 'off' : options.stabilize
+  if (!STABILIZE_LEVELS.includes(stabilize)) fail('stabilize')
+  const hardware = options.hardware === undefined || options.hardware === null ? null : options.hardware
+  if (hardware !== null && !HARDWARE_ENCODERS.includes(hardware)) fail('hardware')
+  // Highest output height, or null to keep the source's.
+  const resolution = options.resolution === undefined || options.resolution === null
+    ? null : Math.round(num(options.resolution, 'resolution', 144, 4320))
+
   return {
     inputPath,
     outputPath,
@@ -106,6 +120,12 @@ function validateExportOptions(options) {
     perspectiveV: num(options.perspectiveV, 'perspectiveV', -45, 45, 0),
     muted: options.muted === true,
     subtitles: validateSubtitles(options.subtitles),
+    quality,
+    resolution,
+    stabilize,
+    hardware,
+    gifWidth: Math.round(num(options.gifWidth, 'gifWidth', 64, 1920, 480)),
+    gifFps: Math.round(num(options.gifFps, 'gifFps', 1, 60, 15)),
   }
 }
 
@@ -119,15 +139,84 @@ function expectedDuration(segments, speed) {
   return segments.reduce((sum, s) => sum + (s.end - s.start), 0) / speed
 }
 
-const GIF_TAIL = 'fps=15,scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse'
+// Encoder settings per quality level. CRF scales differ per codec; the GIF
+// palette trades colours and dithering noise (smaller files) for fidelity.
+const QUALITY = {
+  high:     { x264: 18, preset: 'fast',   vp9: 24, aac: '256k', gifColors: 256, gifDither: 'sierra2_4a', vtQ: 75, nvCq: 19, qsvQ: 20, vaapiQp: 20 },
+  balanced: { x264: 22, preset: 'fast',   vp9: 30, aac: '192k', gifColors: 256, gifDither: 'bayer:bayer_scale=3', vtQ: 60, nvCq: 24, qsvQ: 25, vaapiQp: 25 },
+  small:    { x264: 28, preset: 'medium', vp9: 37, aac: '128k', gifColors: 128, gifDither: 'bayer:bayer_scale=5', vtQ: 45, nvCq: 30, qsvQ: 31, vaapiQp: 31 },
+}
+
+/**
+ * The GIF palette pipeline. `stats_mode=diff` weights the palette towards what
+ * moves, and `diff_mode=rectangle` re-encodes only the changed area of each
+ * frame: both make the file smaller. The width is capped at the source's
+ * (never upscaled).
+ */
+function gifTail({ width = 480, fps = 15, quality = 'balanced' } = {}) {
+  const q = QUALITY[quality] || QUALITY.balanced
+  return `fps=${fps},scale='min(${width},iw)':-1:flags=lanczos,split[s0][s1];`
+    + `[s0]palettegen=max_colors=${q.gifColors}:stats_mode=diff[p];`
+    + `[s1][p]paletteuse=dither=${q.gifDither}:diff_mode=rectangle`
+}
+
+/**
+ * Hardware encoder profiles. `inputArgs` go before the input, `filter` is
+ * appended to the video chain (VAAPI needs frames uploaded to the GPU).
+ */
+const HARDWARE = {
+  videotoolbox: (q) => ({ inputArgs: [], filter: '', args: ['-c:v', 'h264_videotoolbox', '-q:v', String(q.vtQ), '-pix_fmt', 'yuv420p'] }),
+  nvenc: (q) => ({ inputArgs: [], filter: '', args: ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', String(q.nvCq), '-b:v', '0', '-pix_fmt', 'yuv420p'] }),
+  qsv: (q) => ({ inputArgs: [], filter: 'format=nv12', args: ['-c:v', 'h264_qsv', '-global_quality', String(q.qsvQ), '-preset', 'medium'] }),
+  vaapi: (q) => ({ inputArgs: ['-vaapi_device', '/dev/dri/renderD128'], filter: 'format=nv12,hwupload', args: ['-c:v', 'h264_vaapi', '-qp', String(q.vaapiQp)] }),
+}
+
+/** @returns {{ inputArgs: string[], filter: string, args: string[] }} */
+function hardwareProfile(id, quality = 'balanced') {
+  const make = HARDWARE[id]
+  if (!make) throw new Error(`Unknown hardware encoder: ${id}`)
+  return make(QUALITY[quality] || QUALITY.balanced)
+}
+
+/** Stabilisation strength → vidstab parameters (higher = smoother, more crop). */
+const STABILIZE = {
+  light:  { shakiness: 4, smoothing: 8 },
+  normal: { shakiness: 6, smoothing: 15 },
+  strong: { shakiness: 8, smoothing: 30 },
+}
+
+/**
+ * Pass 1 of stabilisation: the kept segments, joined, analysed by
+ * `vidstabdetect` which writes the motion data to `trf`. Video only.
+ */
+function buildDetectGraph({ segments, trf, level }) {
+  const { shakiness } = STABILIZE[level]
+  const parts = segments.map((s, i) => `[0:v]trim=start=${s.start.toFixed(3)}:end=${s.end.toFixed(3)},setpts=PTS-STARTPTS[v${i}]`)
+  parts.push(`${segments.map((_, i) => `[v${i}]`).join('')}concat=n=${segments.length}:v=1:a=0[vc]`)
+  parts.push(`[vc]vidstabdetect=shakiness=${shakiness}:accuracy=9:result=${escapeForFfmpegFilter(trf)}[vo]`)
+  return parts.join(';')
+}
+
+/** The filter that applies the motion data; runs first, on the original frames. */
+function stabilizeFilter({ trf, level }) {
+  const { smoothing } = STABILIZE[level]
+  // optzoom=1 picks a static zoom that hides most of the moving black borders.
+  return `vidstabtransform=input=${escapeForFfmpegFilter(trf)}:smoothing=${smoothing}:optzoom=1:interpol=bicubic`
+}
 
 /**
  * One filter graph for the whole export: trim every kept segment, concat them,
- * apply the geometry/colour/speed chain, and (for GIF) the palette pipeline.
- * Doing it in a single pass avoids the encode → concat → re-encode round trip
- * (two quality generations, a few ms of audio priming gap at each join).
+ * apply stabilisation, the geometry/colour/speed chain, and (for GIF) the
+ * palette pipeline. Doing it in a single pass avoids the encode → concat →
+ * re-encode round trip (two quality generations, a few ms of audio priming gap
+ * at each join).
+ *
+ * @param {{ segments: { start: number, end: number }[], videoChain: string[], speed: number, withAudio: boolean,
+ *   gif?: string|null, stabilize?: string|null, hardwareFilter?: string }} p
+ *   `gif`: the palette pipeline (see gifTail); `stabilize`: stabilizeFilter();
+ *   `hardwareFilter`: appended last (VAAPI upload)
  */
-function buildFilterComplex({ segments, videoChain, speed, withAudio, gif = false }) {
+function buildFilterComplex({ segments, videoChain, speed, withAudio, gif = null, stabilize = null, hardwareFilter = '' }) {
   const parts = []
   segments.forEach((s, i) => {
     const range = `start=${s.start.toFixed(3)}:end=${s.end.toFixed(3)}`
@@ -137,44 +226,67 @@ function buildFilterComplex({ segments, videoChain, speed, withAudio, gif = fals
   const inputs = segments.map((_, i) => `[v${i}]${withAudio ? `[a${i}]` : ''}`).join('')
   parts.push(`${inputs}concat=n=${segments.length}:v=1:a=${withAudio ? 1 : 0}[vc]${withAudio ? '[ac]' : ''}`)
 
-  const chain = gif ? `${videoChain.join(',')},${GIF_TAIL}` : videoChain.join(',')
+  let chain = [stabilize, ...videoChain].filter(Boolean).join(',')
+  if (gif) chain = `${chain},${gif}`
+  else if (hardwareFilter) chain = `${chain},${hardwareFilter}`
   parts.push(`[vc]${chain}[vout]`)
   if (withAudio) parts.push(speed === 1 ? '[ac]anull[aout]' : `[ac]atempo=${clampAtempo(speed)}[aout]`)
   return parts.join(';')
 }
 
-const X264 = ['-c:v libx264', '-preset fast', '-crf 22', '-pix_fmt yuv420p']
-const VP9 = ['-c:v libvpx-vp9', '-crf 30', '-b:v 0', '-row-mt 1', '-deadline good', '-cpu-used 4', '-pix_fmt yuv420p']
-
-function videoEncoder(format) {
-  if (format === 'webm') return VP9
+function videoEncoder(format, quality, hardware) {
+  const q = QUALITY[quality] || QUALITY.balanced
   if (format === 'gif') return []
-  return X264
+  if (format === 'webm') return ['-c:v', 'libvpx-vp9', '-crf', String(q.vp9), '-b:v', '0', '-row-mt', '1', '-deadline', 'good', '-cpu-used', '4', '-pix_fmt', 'yuv420p']
+  if (hardware) return hardwareProfile(hardware, quality).args
+  return ['-c:v', 'libx264', '-preset', q.preset, '-crf', String(q.x264), '-pix_fmt', 'yuv420p']
 }
 
-function audioEncoder(format, { copy = false } = {}) {
+function audioEncoder(format, quality, { copy = false } = {}) {
+  const q = QUALITY[quality] || QUALITY.balanced
   if (format === 'gif') return []
-  if (format === 'webm') return ['-c:a libopus', '-b:a 128k']
-  if (copy) return ['-c:a copy']
-  return format === 'avi' ? ['-c:a libmp3lame', '-b:a 192k'] : ['-c:a aac', '-b:a 192k']
+  if (format === 'webm') return ['-c:a', 'libopus', '-b:a', '128k']
+  if (copy) return ['-c:a', 'copy']
+  return format === 'avi' ? ['-c:a', 'libmp3lame', '-b:a', q.aac] : ['-c:a', 'aac', '-b:a', q.aac]
 }
 
-/** Settings for the (single, or first) pass that writes the final file. */
-function finalOptions(format) {
-  const faststart = format === 'mp4' || format === 'mov' ? ['-movflags +faststart'] : []
-  return [...videoEncoder(format), ...audioEncoder(format), ...faststart]
+const faststart = (format) => (format === 'mp4' || format === 'mov' ? ['-movflags', '+faststart'] : [])
+
+/** Hardware only applies to the H.264 containers (webm is VP9, gif has no video codec). */
+const usesHardware = (format, hardware) => !!hardware && (format === 'mp4' || format === 'mov' || format === 'avi')
+
+/**
+ * Settings for the (single, or first) pass that writes the final file, as argv
+ * entries. `hardware` is a profile id or null for the software encoder.
+ */
+/** @param {string} format @param {{ quality?: string, hardware?: string|null }} [o] @returns {string[]} */
+function finalOptions(format, { quality = 'balanced', hardware = null } = {}) {
+  const hw = usesHardware(format, hardware) ? hardware : null
+  return [...videoEncoder(format, quality, hw), ...audioEncoder(format, quality), ...faststart(format)]
+}
+
+/** Extra input arguments and chain filter the final encode needs for `hardware`. */
+/** @param {string} format @param {string|null} hardware @param {string} [quality] */
+function hardwareSetup(format, hardware, quality = 'balanced') {
+  if (!usesHardware(format, hardware)) return { inputArgs: [], filter: '' }
+  const { inputArgs, filter } = hardwareProfile(hardware, quality)
+  return { inputArgs, filter }
 }
 
 /** High-quality intermediate, only used when subtitles must be burned in. */
-const INTERMEDIATE_OPTIONS = ['-c:v libx264', '-preset veryfast', '-crf 16', '-pix_fmt yuv420p', '-c:a aac', '-b:a 192k']
+const INTERMEDIATE_OPTIONS = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k']
 
 /** Second pass: burn subtitles into the intermediate and encode to `format`. */
-function burnOptions(format, subtitlesFilter) {
-  const faststart = format === 'mp4' || format === 'mov' ? ['-movflags +faststart'] : []
-  const vf = format === 'gif' ? `${subtitlesFilter},${GIF_TAIL}` : subtitlesFilter
+/** @param {string} format @param {string} subtitlesFilter @param {{ quality?: string, hardware?: string|null, gif?: string|null }} [o] */
+function burnOptions(format, subtitlesFilter, { quality = 'balanced', hardware = null, gif = null } = {}) {
+  const hw = usesHardware(format, hardware) ? hardware : null
+  let videoFilter = subtitlesFilter
+  if (format === 'gif') videoFilter = `${subtitlesFilter},${gif || gifTail({ quality })}`
+  else if (hw) videoFilter = [subtitlesFilter, hardwareProfile(hw, quality).filter].filter(Boolean).join(',')
   return {
-    videoFilter: vf,
-    options: [...videoEncoder(format), ...audioEncoder(format, { copy: format === 'mp4' || format === 'mov' }), ...faststart],
+    videoFilter,
+    inputArgs: hw ? hardwareProfile(hw, quality).inputArgs : [],
+    options: [...videoEncoder(format, quality, hw), ...audioEncoder(format, quality, { copy: format === 'mp4' || format === 'mov' }), ...faststart(format)],
   }
 }
 
@@ -200,6 +312,14 @@ module.exports = {
   validateExportOptions,
   ensureExtension,
   expectedDuration,
+  QUALITIES,
+  STABILIZE_LEVELS,
+  HARDWARE_ENCODERS,
+  gifTail,
+  hardwareProfile,
+  hardwareSetup,
+  buildDetectGraph,
+  stabilizeFilter,
   buildFilterComplex,
   finalOptions,
   burnOptions,

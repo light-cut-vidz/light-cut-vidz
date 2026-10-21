@@ -4,6 +4,7 @@ import React from 'react'
 import Toolbar from '../components/Toolbar'
 import { LangProvider } from '../i18n'
 import type { EditorState } from '../App'
+import type { StabilizeLevel } from '../hooks/useHistory'
 
 const baseState: EditorState = {
   videoPath: '/tmp/v.mp4',
@@ -19,12 +20,14 @@ const baseState: EditorState = {
   perspectiveHorizontal: 0,
   perspectiveVertical: 0,
   subtitles: null,
+  stabilize: 'off',
 }
 
 function makeProps(overrides: Partial<EditorState> = {}, callbacks: Partial<{
   onSpeedChange: (s: number) => void
   onSpeedChangeLive: (s: number) => void
   onCommit: () => void
+  onStabilizeChange: (l: StabilizeLevel) => void
   onMuteToggle: () => void
   onCropToggle: () => void
   onCropReset: () => void
@@ -42,6 +45,7 @@ function makeProps(overrides: Partial<EditorState> = {}, callbacks: Partial<{
     onSpeedChange: vi.fn(),
     onSpeedChangeLive: vi.fn(),
     onCommit: vi.fn(),
+    onStabilizeChange: vi.fn(),
     onMuteToggle: vi.fn(),
     onCropToggle: vi.fn(),
     onCropReset: vi.fn(),
@@ -236,5 +240,32 @@ describe('Toolbar — version button', () => {
     fireEvent.click(container.querySelector('.toolbar-version') as HTMLElement)
     window.removeEventListener('lcv:show-changelog', handler)
     expect(handler).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Toolbar — stabilisation', () => {
+  const renderBar = (overrides: Partial<EditorState> = {}, cb: Partial<{ onStabilizeChange: (l: StabilizeLevel) => void }> = {}) =>
+    render(<LangProvider><Toolbar {...makeProps(overrides, cb)} /></LangProvider>)
+  const buttons = (c: HTMLElement) => Array.from(c.querySelectorAll('.stab-btn')) as HTMLElement[]
+
+  it('offers off, light, normal and strong', () => {
+    const { container } = renderBar()
+    expect(buttons(container)).toHaveLength(4)
+  })
+  it('marks the current level', () => {
+    const { container } = renderBar({ stabilize: 'normal' })
+    const pressed = buttons(container).filter(b => b.getAttribute('aria-pressed') === 'true')
+    expect(pressed).toHaveLength(1)
+    expect(pressed[0].className).toContain('active')
+  })
+  it.each([['light', 1], ['normal', 2], ['strong', 3], ['off', 0]] as const)('picking %s reports it', (level, index) => {
+    const onStabilizeChange = vi.fn()
+    const { container } = renderBar({ stabilize: level === 'off' ? 'strong' : 'off' }, { onStabilizeChange })
+    fireEvent.click(buttons(container)[index])
+    expect(onStabilizeChange).toHaveBeenCalledWith(level)
+  })
+  it('explains that it is applied at export, only when it is on', () => {
+    expect(renderBar({ stabilize: 'off' }).container.querySelector('.trim-hint + .trim-hint, .stab-options + .trim-hint')).toBeNull()
+    expect(renderBar({ stabilize: 'light' }).container.querySelector('.stab-options + .trim-hint')).toBeTruthy()
   })
 })

@@ -3,7 +3,7 @@ import { requireSrc } from './__doubles__/installElectron.js'
 
 const {
   validateExportOptions, ensureExtension, expectedDuration, buildFilterComplex, finalOptions, burnOptions,
-  createProgressTracker,
+  createProgressTracker, gifTail, hardwareProfile, hardwareSetup, buildDetectGraph, stabilizeFilter,
 } = requireSrc('main/lib/exportPlan.js')
 
 const ok = {
@@ -130,34 +130,175 @@ describe('buildFilterComplex', () => {
   })
 
   it('appends the palette pipeline for gif', () => {
-    const g = buildFilterComplex({ ...base, withAudio: false, gif: true })
-    expect(g).toMatch(/fps=15,scale=480:-1:flags=lanczos,split\[s0\]\[s1\];\[s0\]palettegen\[p\];\[s1\]\[p\]paletteuse\[vout\]$/)
+    const g = buildFilterComplex({ ...base, withAudio: false, gif: gifTail() })
+    expect(g).toMatch(/fps=15,scale='min\(480,iw\)':-1:flags=lanczos,split\[s0\]\[s1\];\[s0\]palettegen=max_colors=256:stats_mode=diff\[p\];\[s1\]\[p\]paletteuse=.*diff_mode=rectangle\[vout\]$/)
+  })
+
+  it('puts the stabilisation filter before the rest of the chain', () => {
+    const g = buildFilterComplex({ ...base, stabilize: 'vidstabtransform=input=/t.trf' })
+    expect(g).toContain('[vc]vidstabtransform=input=/t.trf,scale=trunc(iw/2)*2:trunc(ih/2)*2[vout]')
+  })
+
+  it('appends a hardware upload filter after the chain', () => {
+    expect(buildFilterComplex({ ...base, hardwareFilter: 'format=nv12,hwupload' })).toContain('[vc]scale=trunc(iw/2)*2:trunc(ih/2)*2,format=nv12,hwupload[vout]')
+  })
+
+  it('does not append the hardware filter to a GIF (palette pipeline last)', () => {
+    expect(buildFilterComplex({ ...base, withAudio: false, gif: gifTail(), hardwareFilter: 'hwupload' })).not.toContain('hwupload')
   })
 })
 
 describe('encoder options', () => {
+  const has = (opts, flag, value) => opts.some((o, i) => o === flag && (value === undefined || opts[i + 1] === value))
+
   it('uses x264 + AAC + faststart for mp4/mov', () => {
     for (const f of ['mp4', 'mov']) {
       const o = finalOptions(f)
-      expect(o).toEqual(expect.arrayContaining(['-c:v libx264', '-pix_fmt yuv420p', '-c:a aac', '-movflags +faststart']))
+      expect(has(o, '-c:v', 'libx264')).toBe(true)
+      expect(has(o, '-pix_fmt', 'yuv420p')).toBe(true)
+      expect(has(o, '-c:a', 'aac')).toBe(true)
+      expect(has(o, '-movflags', '+faststart')).toBe(true)
     }
   })
   it('uses MP3 audio for avi (AAC-in-AVI is poorly supported)', () => {
-    expect(finalOptions('avi')).toContain('-c:a libmp3lame')
+    expect(has(finalOptions('avi'), '-c:a', 'libmp3lame')).toBe(true)
   })
   it('uses multithreaded VP9 + Opus for webm', () => {
-    expect(finalOptions('webm')).toEqual(expect.arrayContaining(['-c:v libvpx-vp9', '-row-mt 1', '-c:a libopus']))
+    const o = finalOptions('webm')
+    expect(has(o, '-c:v', 'libvpx-vp9') && has(o, '-row-mt', '1') && has(o, '-c:a', 'libopus')).toBe(true)
   })
   it('sets no codec for gif', () => {
     expect(finalOptions('gif')).toEqual([])
   })
+
+  describe('quality', () => {
+    it.each([['high', '18'], ['balanced', '22'], ['small', '28']])('%s uses x264 CRF %s', (quality, crf) => {
+      expect(has(finalOptions('mp4', { quality }), '-crf', crf)).toBe(true)
+    })
+    it.each([['high', '24'], ['balanced', '30'], ['small', '37']])('%s uses VP9 CRF %s', (quality, crf) => {
+      expect(has(finalOptions('webm', { quality }), '-crf', crf)).toBe(true)
+    })
+    it('smaller means a lower audio bitrate and a slower x264 preset', () => {
+      const small = finalOptions('mp4', { quality: 'small' })
+      expect(has(small, '-b:a', '128k')).toBe(true)
+      expect(has(small, '-preset', 'medium')).toBe(true)
+      expect(has(finalOptions('mp4', { quality: 'high' }), '-b:a', '256k')).toBe(true)
+    })
+    it('falls back to balanced for an unknown level', () => {
+      expect(finalOptions('mp4', { quality: 'weird' })).toEqual(finalOptions('mp4', { quality: 'balanced' }))
+    })
+    it('crf only ever goes up as quality goes down', () => {
+      const crf = (q) => Number(finalOptions('mp4', { quality: q })[finalOptions('mp4', { quality: q }).indexOf('-crf') + 1])
+      expect(crf('high')).toBeLessThan(crf('balanced'))
+      expect(crf('balanced')).toBeLessThan(crf('small'))
+    })
+  })
+
+  describe('hardware', () => {
+    it.each([['videotoolbox', 'h264_videotoolbox'], ['nvenc', 'h264_nvenc'], ['qsv', 'h264_qsv'], ['vaapi', 'h264_vaapi']])('%s encodes with %s', (id, codec) => {
+      expect(has(finalOptions('mp4', { hardware: id }), '-c:v', codec)).toBe(true)
+    })
+    it('keeps AAC audio and faststart with a hardware video encoder', () => {
+      const o = finalOptions('mp4', { hardware: 'nvenc' })
+      expect(has(o, '-c:a', 'aac') && has(o, '-movflags', '+faststart')).toBe(true)
+    })
+    it('never applies to webm or gif', () => {
+      expect(has(finalOptions('webm', { hardware: 'nvenc' }), '-c:v', 'libvpx-vp9')).toBe(true)
+      expect(finalOptions('gif', { hardware: 'nvenc' })).toEqual([])
+    })
+    it('VAAPI needs a device and an upload filter, the others need neither', () => {
+      expect(hardwareSetup('mp4', 'vaapi')).toEqual({ inputArgs: ['-vaapi_device', '/dev/dri/renderD128'], filter: 'format=nv12,hwupload' })
+      expect(hardwareSetup('mp4', 'videotoolbox')).toEqual({ inputArgs: [], filter: '' })
+      expect(hardwareSetup('webm', 'vaapi')).toEqual({ inputArgs: [], filter: '' })
+      expect(hardwareSetup('mp4', null)).toEqual({ inputArgs: [], filter: '' })
+    })
+    it('quality changes the hardware quantizer', () => {
+      expect(hardwareProfile('nvenc', 'high').args).toContain('19')
+      expect(hardwareProfile('nvenc', 'small').args).toContain('30')
+    })
+    it('rejects an unknown encoder', () => {
+      expect(() => hardwareProfile('quantum')).toThrow('Unknown hardware encoder')
+    })
+  })
+
   it('burn pass copies audio for mp4/mov and carries the subtitles filter', () => {
     const { videoFilter, options } = burnOptions('mp4', 'subtitles=/x.ass')
     expect(videoFilter).toBe('subtitles=/x.ass')
-    expect(options).toContain('-c:a copy')
+    expect(has(options, '-c:a', 'copy')).toBe(true)
   })
   it('burn pass chains the palette after the subtitles for gif', () => {
     expect(burnOptions('gif', 'subtitles=/x.ass').videoFilter).toMatch(/^subtitles=\/x\.ass,fps=15/)
+  })
+  it('burn pass uses the requested GIF settings', () => {
+    expect(burnOptions('gif', 'subtitles=/x.ass', { gif: gifTail({ width: 320, fps: 10, quality: 'small' }) }).videoFilter).toMatch(/fps=10,scale='min\(320,iw\)'.*max_colors=128/)
+  })
+  it('burn pass can encode in hardware, uploading after the subtitles', () => {
+    const burn = burnOptions('mp4', 'subtitles=/x.ass', { hardware: 'vaapi' })
+    expect(burn.videoFilter).toBe('subtitles=/x.ass,format=nv12,hwupload')
+    expect(burn.inputArgs).toEqual(['-vaapi_device', '/dev/dri/renderD128'])
+    expect(has(burn.options, '-c:v', 'h264_vaapi')).toBe(true)
+  })
+})
+
+describe('gifTail', () => {
+  it('caps the width at the source size and sets the frame rate', () => {
+    expect(gifTail({ width: 640, fps: 20 })).toContain("fps=20,scale='min(640,iw)':-1:flags=lanczos")
+  })
+  it.each([['high', '256', 'sierra2_4a'], ['balanced', '256', 'bayer:bayer_scale=3'], ['small', '128', 'bayer:bayer_scale=5']])('%s: %s colours, %s dithering', (quality, colors, dither) => {
+    const t = gifTail({ quality })
+    expect(t).toContain(`max_colors=${colors}`)
+    expect(t).toContain(`dither=${dither}`)
+  })
+  it('weights the palette towards motion and re-encodes only what changed', () => {
+    expect(gifTail()).toContain('stats_mode=diff')
+    expect(gifTail()).toContain('diff_mode=rectangle')
+  })
+})
+
+describe('stabilisation graphs', () => {
+  const segs = [{ start: 0, end: 2 }, { start: 5, end: 8 }]
+  it('detects over the joined kept footage, video only', () => {
+    const g = buildDetectGraph({ segments: segs, trf: '/w/motion.trf', level: 'normal' })
+    expect(g).toContain('[0:v]trim=start=0.000:end=2.000')
+    expect(g).toContain('concat=n=2:v=1:a=0[vc]')
+    expect(g).toContain('vidstabdetect=shakiness=6:accuracy=9:result=/w/motion.trf[vo]')
+    expect(g).not.toContain('atrim')
+  })
+  it.each([['light', 4, 8], ['normal', 6, 15], ['strong', 8, 30]])('%s: shakiness %i, smoothing %i', (level, shakiness, smoothing) => {
+    expect(buildDetectGraph({ segments: segs, trf: '/t', level })).toContain(`shakiness=${shakiness}`)
+    expect(stabilizeFilter({ trf: '/t', level })).toContain(`smoothing=${smoothing}`)
+  })
+  it('escapes an awkward scratch path in both passes', () => {
+    const trf = "/tmp/it's a,dir/motion.trf"
+    expect(buildDetectGraph({ segments: segs, trf, level: 'light' })).toContain(String.raw`result=/tmp/it\\\'s\ a\,dir/motion.trf`)
+    expect(stabilizeFilter({ trf, level: 'light' })).toContain(String.raw`input=/tmp/it\\\'s\ a\,dir/motion.trf`)
+  })
+  it('zooms adaptively to hide the moving borders', () => {
+    expect(stabilizeFilter({ trf: '/t', level: 'normal' })).toContain('optzoom=1')
+  })
+})
+
+describe('new export options', () => {
+  it('default to balanced quality, original size, no stabilisation, software', () => {
+    expect(validateExportOptions(ok)).toMatchObject({ quality: 'balanced', resolution: null, stabilize: 'off', hardware: null, gifWidth: 480, gifFps: 15 })
+  })
+  it('accepts every choice the UI offers', () => {
+    expect(validateExportOptions({ ...ok, quality: 'small', resolution: 720, stabilize: 'strong', hardware: 'vaapi', gifWidth: 320, gifFps: 10 }))
+      .toMatchObject({ quality: 'small', resolution: 720, stabilize: 'strong', hardware: 'vaapi', gifWidth: 320, gifFps: 10 })
+  })
+  it.each([
+    ['unknown quality', { quality: 'ultra' }],
+    ['unknown stabilisation', { stabilize: 'max' }],
+    ['unknown encoder', { hardware: 'h264_nvenc; rm -rf /' }],
+    ['tiny resolution', { resolution: 10 }],
+    ['text resolution', { resolution: '720;x' }],
+    ['huge gif width', { gifWidth: 99999 }],
+    ['zero gif fps', { gifFps: 0 }],
+  ])('rejects %s', (_n, extra) => {
+    expect(() => validateExportOptions({ ...ok, ...extra })).toThrow()
+  })
+  it('null means "use the default" for resolution and hardware', () => {
+    expect(validateExportOptions({ ...ok, resolution: null, hardware: null })).toMatchObject({ resolution: null, hardware: null })
   })
 })
 

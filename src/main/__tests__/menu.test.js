@@ -277,3 +277,55 @@ describe('What\'s new menu item', () => {
     expect(() => help.submenu.find(i => i.label === 'menu_whats_new').click()).not.toThrow()
   })
 })
+
+describe('Open recent submenu', () => {
+  const recent = [
+    { kind: 'project', path: '/home/u/edit.lcvproj', openedAt: 2 },
+    { kind: 'video', path: '/home/u/clip.mp4', openedAt: 1 },
+  ]
+  const submenu = (opts) => buildMenuTemplate(makeOpts(opts)).find(m => m.label === 'menu_file').submenu.find(i => i.label === 'menu_open_recent')
+
+  it('is disabled when there is nothing recent', () => {
+    expect(submenu({ recent: [] }).enabled).toBe(false)
+  })
+  it('lists each file by name, marking projects, with the full path as tooltip', () => {
+    const items = submenu({ recent }).submenu
+    expect(items[0].label).toBe('◆ edit.lcvproj')
+    expect(items[1].label).toBe('clip.mp4')
+    expect(items[1].toolTip).toBe('/home/u/clip.mp4')
+  })
+  it('opens the clicked file', () => {
+    const onOpenRecent = vi.fn()
+    submenu({ recent, onOpenRecent }).submenu[1].click()
+    expect(onOpenRecent).toHaveBeenCalledWith('/home/u/clip.mp4')
+  })
+  it('ends with a Clear entry', () => {
+    const onClearRecent = vi.fn()
+    const items = submenu({ recent, onClearRecent }).submenu
+    items.at(-1).click()
+    expect(onClearRecent).toHaveBeenCalled()
+  })
+  it('does not crash without handlers', () => {
+    const items = submenu({ recent }).submenu
+    expect(() => { items[0].click(); items.at(-1).click() }).not.toThrow()
+  })
+})
+
+describe('View > Theme submenu', () => {
+  const theme = (opts) => buildMenuTemplate(makeOpts(opts)).find(m => m.label === 'menu_view').submenu.find(i => i.label === 'menu_theme').submenu
+  it('offers system, light and dark as radios, checking the current one', () => {
+    const items = theme({ currentTheme: 'light' })
+    expect(items.map(i => [i.id, i.type, i.checked])).toEqual([['theme-system', 'radio', false], ['theme-light', 'radio', true], ['theme-dark', 'radio', false]])
+  })
+  it('defaults to following the system', () => {
+    expect(theme({}).find(i => i.checked).id).toBe('theme-system')
+  })
+  it('switches the theme on click', () => {
+    const onSwitchTheme = vi.fn()
+    theme({ onSwitchTheme }).find(i => i.id === 'theme-dark').click()
+    expect(onSwitchTheme).toHaveBeenCalledWith('dark')
+  })
+  it('does nothing without a handler', () => {
+    expect(() => theme({})[0].click()).not.toThrow()
+  })
+})

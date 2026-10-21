@@ -27,6 +27,8 @@ const FFMPEG = /** @type {string} */ (/** @type {unknown} */ (require('ffmpeg-st
 const { createFfmpeg } = require('../src/main/lib/ffmpeg')
 const probe = createFfmpeg({ ffmpegPath: FFMPEG }).probe
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'lcv-e2e-'))
+// Settings and the recent list go to a scratch folder, not the developer's real profile.
+app.setPath('userData', path.join(work, 'userdata'))
 const results = []
 
 function check(name, ok, detail = '') {
@@ -160,6 +162,61 @@ app.whenReady().then(async () => {
       const reported = await run('window.__progress || []')
       check('progress ends at 100 and never goes backwards', reported.at(-1) === 100 && reported.every((p, i) => i === 0 || p >= reported[i - 1]), JSON.stringify(reported))
     }
+
+    // ── Capabilities, queue, quality, GIF, stabilisation ───────────────────
+    const caps = await run('window.electronAPI.getCapabilities()')
+    check('capabilities: stabilisation is available and hardware is a list', caps.stabilization === true && Array.isArray(caps.hardware), JSON.stringify(caps))
+
+    const shaky = path.join(work, 'shaky.mp4')
+    ff(['-f', 'lavfi', '-i', "testsrc2=s=960x600:r=25:d=4,crop=640:360:x='160+40*sin(t*13)':y='120+30*sin(t*17)'", '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', shaky])
+    nextOpen = shaky
+    await run(`window.electronAPI.openVideo()`)
+    const queued = []
+    /** @type {[string, Record<string, any>][]} */
+    const jobs = [
+      ['q1.mp4', { quality: 'small', resolution: 180, stabilize: 'light' }],
+      ['q2.gif', { format: 'gif', gifWidth: 200, gifFps: 10, quality: 'small' }],
+    ]
+    for (const [name, extra] of jobs) {
+      const out = path.join(work, name)
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: out })
+      await run(`window.electronAPI.saveVideo(${JSON.stringify(name)}, ${JSON.stringify(extra.format || 'mp4')})`)
+      const opts = { inputPath: shaky, outputPath: out, segments: [{ start: 0, end: 3 }], speed: 1, crop: null, filter: 'none', muted: true, format: 'mp4', subtitles: null, ...extra }
+      queued.push({ out, ...(await run(`window.electronAPI.queueAdd(${JSON.stringify(opts)})`)) })
+    }
+    check('two exports queued from the renderer', queued.length === 2 && queued[0].id !== queued[1].id)
+    check('the queue pill shows up', await until(() => run("!!document.querySelector('.queue-pill')")))
+    const finished = await until(async () => {
+      // (the earlier export through the dialog is in the list too)
+      const list = (await run('window.electronAPI.queueList()')).filter(j => /^q[12]\./.test(j.name))
+      return list.length === 2 && list.every(j => j.status === 'done' || j.status === 'error') ? list : false
+    }, 90000)
+    check('both queued exports finished, in order, without error', finished && finished.map(j => j.status).join() === 'done,done', JSON.stringify(finished))
+    if (finished) {
+      const mp4 = await probe(queued[0].out)
+      const v1 = mp4.streams.find(x => x.codec_type === 'video')
+      check('quality + resolution + stabilisation: 180p H.264 output', v1.height === 180 && v1.codec_name === 'h264', `${v1.width}x${v1.height}`)
+      const gif = await probe(queued[1].out)
+      const v2 = gif.streams.find(x => x.codec_type === 'video')
+      check('GIF honours the width and is a real GIF', v2.codec_name === 'gif' && v2.width === 200, `${v2.codec_name} ${v2.width}`)
+    }
+    await run("document.querySelector('.queue-pill').click()")
+    check('the queue window lists the jobs', await until(() => run("document.querySelectorAll('.queue-job').length >= 2")))
+    await run("document.querySelector('.queue-close').click()")
+
+    // ── Recent files ───────────────────────────────────────────────────────
+    const recent = await run('window.electronAPI.listRecent()')
+    check('opened videos are in the recent list, newest first', recent.length >= 2 && recent[0].path === h264 || recent.some(r => r.path === h264), JSON.stringify(recent.map(r => r.name)))
+
+    // ── Theme: the page really follows nativeTheme ────────────────────────
+    const scheme = () => run("matchMedia('(prefers-color-scheme: light)').matches")
+    await run("window.electronAPI.setTheme('light')")
+    check('theme "light" makes the page match prefers-color-scheme: light', await until(async () => (await scheme()) === true))
+    const bg = (await run("getComputedStyle(document.documentElement).getPropertyValue('--bg-secondary').trim()"))
+    check('...and the light colour variables apply', bg === '#ffffff' || bg === '#fff', bg)
+    await run("window.electronAPI.setTheme('dark')")
+    check('theme "dark" flips it back', await until(async () => (await scheme()) === false))
+    check('the choice is saved', (await run('window.electronAPI.getSettings()')).theme === 'dark')
 
     // ── Guards on the export IPC ───────────────────────────────────────────
     const refused = await run(`window.electronAPI.exportVideo({

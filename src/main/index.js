@@ -1,5 +1,5 @@
 const electron = require('electron')
-const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell } = electron
+const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell, nativeTheme } = electron
 const path = require('path')
 const fs = require('fs')
 const { spawnSync } = require('child_process')
@@ -10,6 +10,11 @@ const { fixAsarPath } = require('./lib/asar')
 const { validateExportOptions, ensureExtension } = require('./lib/exportPlan')
 const { exportVideo } = require('./lib/exportRun')
 const { createFfmpeg } = require('./lib/ffmpeg')
+const { createExportQueue } = require('./lib/exportQueue')
+const { readJson, writeJson } = require('./lib/store')
+const { sanitizeRecent, addRecent, removeRecent } = require('./lib/recent')
+const { sanitizeSettings, THEMES } = require('./lib/settings')
+const { detectHardware, hasStabilization } = require('./lib/hardware')
 const { canPlayDirectly } = require('./lib/preview')
 const { decodeText } = require('./lib/decodeText')
 const { parseChangelog, entriesUpTo } = require('./lib/changelog')
@@ -21,7 +26,13 @@ const { setupAutoUpdater, checkForUpdates } = require('./lib/updater')
 const { showAboutWindow } = require('./lib/aboutWindow')
 const { LOCAL_SCHEME, toLocalUrl } = require('./lib/localProtocol')
 
-const ffmpeg = createFfmpeg({ ffmpegPath: fixAsarPath(ffmpegStatic) })
+// The bundled ffmpeg has no GPU encoder on Linux. Pointing this variable at a
+// system ffmpeg (built with NVENC / VAAPI / QSV) makes those encoders usable.
+const customFfmpeg = process.env.LIGHTCUTVIDZ_FFMPEG
+const ffmpegPath = customFfmpeg && path.isAbsolute(customFfmpeg) && fs.existsSync(customFfmpeg)
+  ? customFfmpeg
+  : fixAsarPath(ffmpegStatic)
+const ffmpeg = createFfmpeg({ ffmpegPath })
 
 const isDev = process.env.NODE_ENV === 'development'
 const isMac = process.platform === 'darwin'
@@ -36,6 +47,11 @@ let currentLang = 'en'
 let win = null
 let undoRedoState = { canUndo: false, canRedo: false }
 let forceClose = false
+let settings = sanitizeSettings(null)
+/** @type {{ kind: 'project'|'video', path: string, openedAt: number }[]} */
+let recentItems = []
+// The video of the project being opened is not "a video the user opened".
+let skipRecentVideoFor = null
 const updaterState = { updateDownloaded: false }
 
 const t = (key, ...args) => translate(currentLang, key, ...args)
@@ -74,6 +90,39 @@ const checkUpdates = (fromMenu = false) => checkForUpdates({
   getLang: () => currentLang,
 })
 
+// ─── Settings and recent files ────────────────────────────────────────────────
+
+const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
+const recentFile = () => path.join(app.getPath('userData'), 'recent.json')
+
+async function loadPersisted() {
+  settings = sanitizeSettings(await readJson(settingsFile()))
+  recentItems = sanitizeRecent(await readJson(recentFile()))
+  // The renderer follows `prefers-color-scheme`, which this drives: one switch
+  // themes the page, the native menus and the dialogs.
+  if (nativeTheme) nativeTheme.themeSource = settings.theme
+}
+
+async function setTheme(theme) {
+  if (!THEMES.includes(theme)) return
+  settings = { ...settings, theme }
+  if (nativeTheme) nativeTheme.themeSource = theme
+  rebuildMenu()
+  await writeJson(settingsFile(), settings).catch(() => {})
+}
+
+async function rememberRecent(filePath) {
+  recentItems = addRecent(recentItems, filePath)
+  rebuildMenu()
+  await writeJson(recentFile(), { items: recentItems }).catch(() => {})
+}
+
+async function forgetRecent(filePath) {
+  recentItems = filePath === undefined ? [] : removeRecent(recentItems, filePath)
+  rebuildMenu()
+  await writeJson(recentFile(), { items: recentItems }).catch(() => {})
+}
+
 // ─── Window ───────────────────────────────────────────────────────────────────
 
 function createWindow() {
@@ -82,7 +131,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: '#0f0f0f',
+    backgroundColor: nativeTheme && !nativeTheme.shouldUseDarkColors ? '#f4f4f6' : '#0f0f0f',
     icon: path.join(__dirname, '../../assets/icon.png'),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
@@ -123,10 +172,11 @@ function createWindow() {
 
   // Closing with unsaved edits asks first (Cmd+Q and the window's × both end here).
   win.on('close', (event) => {
-    if (!hasUnsavedEdits || forceClose) return
+    const exportsRunning = exportQueue.hasActive()
+    if ((!hasUnsavedEdits && !exportsRunning) || forceClose) return
     const choice = dialog.showMessageBoxSync(win, {
       type: 'warning',
-      message: t('confirm_quit_msg'),
+      message: exportsRunning ? t('confirm_quit_exports') : t('confirm_quit_msg'),
       buttons: [t('confirm_quit_yes'), t('cancel')],
       defaultId: 1,
       cancelId: 1,
@@ -188,7 +238,8 @@ app.on('open-file', (event, filePath) => {
   try { sendOpenVideo(filePath) } catch { /* not a video */ }
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await loadPersisted()
   process.title = 'LightCutVidz'
   app.setName('LightCutVidz')
   protocol.handle(LOCAL_SCHEME, createMediaHandler({
@@ -206,6 +257,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  exportQueue.cancelAll()
   cancelAllCommands()
   cleanupPreviewSync()
   for (const dir of activeWorkDirs) { try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* gone */ } }
@@ -227,6 +279,11 @@ function rebuildMenu() {
     onUndo: (focused) => focused?.webContents.send('menu:undo'),
     onRedo: (focused) => focused?.webContents.send('menu:redo'),
     onFullscreenEntered: (focused) => focused.webContents.send('menu:fullscreen-entered'),
+    currentTheme: settings.theme,
+    recent: recentItems,
+    onOpenRecent: openRecent,
+    onClearRecent: () => { void forgetRecent() },
+    onSwitchTheme: (theme) => { void setTheme(theme) },
     onShowChangelog: (focused) => focused?.webContents.send('menu:showChangelog'),
     onAbout: () => showAboutWindow({ parent: win, title: t('about_title'), message: t('about_message', app.getVersion()), note: t('about_licenses') }),
     onCheckUpdates: checkUpdates,
@@ -244,9 +301,13 @@ async function openProject(focused) {
     properties: ['openFile'],
   })
   if (canceled || !filePaths[0]) return
+  await openProjectFile(target, filePaths[0])
+}
+
+async function openProjectFile(target, filePath) {
   let project
   try {
-    project = parseProject(await fs.promises.readFile(filePaths[0], 'utf-8'))
+    project = parseProject(await fs.promises.readFile(filePath, 'utf-8'))
   } catch {
     dialog.showMessageBox(target, { type: 'error', message: t('project_invalid') })
     return
@@ -256,7 +317,22 @@ async function openProject(focused) {
     return
   }
   allowMedia(project.videoPath)
+  skipRecentVideoFor = project.videoPath
+  void rememberRecent(filePath)
   target.webContents.send('menu:loadProject', project)
+}
+
+/** Opens something from the recent list (and only from it: that is the allow-list). */
+async function openRecent(filePath) {
+  const item = recentItems.find(i => i.path === filePath)
+  if (!item || !win) return
+  if (!(await exists(item.path))) {
+    await forgetRecent(item.path)
+    dialog.showMessageBox(win, { type: 'error', message: t('recent_missing', item.path) })
+    return
+  }
+  if (item.kind === 'project') await openProjectFile(win, item.path)
+  else sendOpenVideo(item.path)
 }
 
 function switchLanguage(lang) {
@@ -272,21 +348,94 @@ function switchLanguage(lang) {
 const activeCommands = new Set()
 const activeWorkDirs = new Set()
 
-/**
- * Runs ffmpeg and tracks the process so it can be cancelled. Rejects with
- * Error('cancelled') when killed on purpose.
- */
-async function runFfmpeg(args, onProgress) {
-  const handle = ffmpeg.run(args, { onProgress })
-  activeCommands.add(handle)
-  try { await handle.promise } finally { activeCommands.delete(handle) }
-}
-
 function cancelAllCommands() {
   for (const handle of activeCommands) handle.kill()
 }
 
 const probeFile = (filePath) => ffmpeg.probe(filePath)
+
+// ─── Export queue ─────────────────────────────────────────────────────────────
+
+const sendToWindow = (channel, payload) => { if (win) win.webContents.send(channel, payload) }
+
+const exportQueue = createExportQueue({
+  execute: (options, ctx) => executeExport(options, ctx),
+  onChange: (jobs) => sendToWindow('queue:update', jobs),
+})
+
+/** Runs one validated export: probe, passes, cleanup. Called by the queue. */
+async function executeExport(options, ctx) {
+  const handles = new Set()
+  ctx.setKill(() => { for (const h of handles) h.kill() })
+
+  // Each ffmpeg process of this job is tracked on its own, so cancelling the job
+  // stops exactly its processes, and quitting stops all of them.
+  const run = async (args, onProgress) => {
+    if (ctx.isCancelled()) throw new Error('cancelled')
+    const handle = ffmpeg.run(args, { onProgress })
+    handles.add(handle)
+    activeCommands.add(handle)
+    try { await handle.promise } finally { handles.delete(handle); activeCommands.delete(handle) }
+  }
+
+  let workDir = null
+  let startedWriting = false
+  try {
+    workDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'lc_export_'))
+    activeWorkDirs.add(workDir)
+    await exportVideo({
+      run,
+      probe: probeFile,
+      getFilterFfmpeg,
+      sendProgress: ctx.setProgress,
+      warn: (message) => console.warn('[export]', message),
+      onStartWriting: () => { startedWriting = true },
+      options,
+      workDir,
+    })
+    return { success: true, outputPath: options.outputPath }
+  } catch (err) {
+    // An interrupted run leaves a truncated file at the chosen location; a
+    // failure before ffmpeg started must not touch a file being overwritten.
+    if (startedWriting) await unlinkQuiet(options.outputPath)
+    throw new Error(err instanceof Error ? err.message : String(err), { cause: err })
+  } finally {
+    // Runs on the failure path too: a pass that errors halfway through
+    // otherwise leaves its intermediate behind in the temp dir.
+    if (workDir) {
+      activeWorkDirs.delete(workDir)
+      await fs.promises.rm(workDir, { recursive: true, force: true }).catch(() => {})
+    }
+  }
+}
+
+// What this ffmpeg can do beyond software encoding, probed once.
+let capabilitiesPromise = null
+function getCapabilities() {
+  if (!capabilitiesPromise) {
+    capabilitiesPromise = (async () => ({
+      hardware: await detectHardware({ run: (args) => ffmpeg.run(args).promise, platform: process.platform }),
+      stabilization: hasStabilization(await ffmpeg.query(['-filters'])),
+    }))()
+  }
+  return capabilitiesPromise
+}
+
+/** Validates an export request against the app's state and this machine. */
+async function prepareExportJob(rawOptions) {
+  const options = validateExportOptions(rawOptions)
+  if (!allowedMedia.has(path.resolve(options.inputPath))) throw new Error('Input file was not opened through the app')
+  if (!allowedOutputs.has(options.outputPath)) throw new Error('Output location was not chosen through the save dialog')
+  if (options.hardware || options.stabilize !== 'off') {
+    const caps = await getCapabilities()
+    // An encoder this machine cannot run is not an error: fall back to software.
+    if (options.hardware && !caps.hardware.includes(options.hardware)) options.hardware = null
+    if (options.stabilize !== 'off' && !caps.stabilization) throw new Error('Stabilization is not available in this build of ffmpeg')
+  }
+  return options
+}
+
+const jobMeta = (options) => ({ name: path.basename(options.outputPath), format: options.format, outputPath: options.outputPath })
 
 // Never written, or already removed: nothing to report either way.
 const unlinkQuiet = (p) => fs.promises.unlink(p).catch(() => {})
@@ -359,6 +508,8 @@ handle('ffmpeg:preview', async (event, inputPath) => {
   if (previewHandle) previewHandle.kill()
   await cleanupPreview()
   allowMedia(inputPath)
+  if (skipRecentVideoFor === inputPath) skipRecentVideoFor = null
+  else void rememberRecent(inputPath)
 
   let metadata = null
   try { metadata = await probeFile(inputPath) } catch { /* let the transcode report it */ }
@@ -422,6 +573,7 @@ handle('project:save', async (_, project) => {
   if (canceled || !filePath) return null
   const finalPath = ensureExtension(filePath, PROJECT_EXTENSION)
   await fs.promises.writeFile(finalPath, text, 'utf-8')
+  void rememberRecent(finalPath)
   return finalPath
 })
 
@@ -429,7 +581,11 @@ handle('project:save', async (_, project) => {
 let hasUnsavedEdits = false
 listen('app:setDirty', (_, dirty) => { hasUnsavedEdits = !!dirty })
 
-handle('ffmpeg:cancel', () => { cancelAllCommands() })
+handle('ffmpeg:cancel', () => {
+  for (const id of dialogJobs) exportQueue.cancel(id)
+  // ...and the preview transcode, which is not a queue job.
+  if (previewHandle) previewHandle.kill()
+})
 
 handle('dialog:openSubtitle', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -471,47 +627,45 @@ handle('dialog:saveVideo', async (_, defaultName, format) => {
   return finalPath
 })
 
-let exporting = false
+// Jobs started from the export dialog (which waits for them): "Stop export" there
+// cancels these, wherever they are in the queue.
+const dialogJobs = new Set()
 
 handle('ffmpeg:export', async (event, rawOptions) => {
-  const options = validateExportOptions(rawOptions)
-  const { inputPath, outputPath } = options
-
-  if (!allowedMedia.has(path.resolve(inputPath))) throw new Error('Input file was not opened through the app')
-  if (!allowedOutputs.has(outputPath)) throw new Error('Output location was not chosen through the save dialog')
-  if (exporting) throw new Error('An export is already running')
-  exporting = true
-
-  let workDir = null
-  let startedWriting = false
+  const options = await prepareExportJob(rawOptions)
+  const job = exportQueue.add(options, { ...jobMeta(options), onProgress: (pct) => event.sender.send('ffmpeg:progress', pct) })
+  dialogJobs.add(job.id)
   try {
-    workDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'lc_export_'))
-    activeWorkDirs.add(workDir)
-
-    await exportVideo({
-      run: runFfmpeg,
-      probe: probeFile,
-      getFilterFfmpeg,
-      sendProgress: (pct) => event.sender.send('ffmpeg:progress', pct),
-      onStartWriting: () => { startedWriting = true },
-      options,
-      workDir,
-    })
-
+    const result = await job.done
     event.sender.send('ffmpeg:progress', 100)
-    return { success: true, outputPath }
-  } catch (err) {
-    // An interrupted run leaves a truncated file at the chosen location; a
-    // failure before ffmpeg started must not touch a file being overwritten.
-    if (startedWriting) await unlinkQuiet(outputPath)
-    throw new Error(err instanceof Error ? err.message : String(err), { cause: err })
+    return result
   } finally {
-    // Runs on the failure path too: a pass that errors halfway through
-    // otherwise leaves its intermediate behind in the temp dir.
-    if (workDir) {
-      activeWorkDirs.delete(workDir)
-      await fs.promises.rm(workDir, { recursive: true, force: true }).catch(() => {})
-    }
-    exporting = false
+    dialogJobs.delete(job.id)
   }
 })
+
+// Adds an export to the queue and returns at once.
+handle('queue:add', async (_, rawOptions) => {
+  const options = await prepareExportJob(rawOptions)
+  return { id: exportQueue.add(options, jobMeta(options)).id }
+})
+handle('queue:list', () => exportQueue.list())
+handle('queue:cancel', (_, id) => exportQueue.cancel(id))
+handle('queue:clearFinished', () => { exportQueue.clearFinished() })
+handle('queue:reveal', (_, id) => {
+  const job = exportQueue.get(id)
+  if (job && job.status === 'done') shell.showItemInFolder(job.outputPath)
+})
+handle('recent:list', async () => {
+  const out = []
+  for (const item of recentItems) {
+    if (await exists(item.path)) out.push({ kind: item.kind, path: item.path, name: path.basename(item.path), dir: path.dirname(item.path), openedAt: item.openedAt })
+  }
+  return out
+})
+handle('recent:open', (_, filePath) => openRecent(filePath))
+handle('recent:remove', (_, filePath) => forgetRecent(typeof filePath === 'string' ? filePath : ''))
+handle('recent:clear', () => forgetRecent())
+handle('settings:get', () => ({ ...settings }))
+handle('settings:setTheme', (_, theme) => setTheme(theme))
+handle('ffmpeg:capabilities', () => getCapabilities())

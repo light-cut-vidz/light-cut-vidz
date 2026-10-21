@@ -1,7 +1,7 @@
 .subtitles-panel {
   padding: 16px;
-  background: #1a1a1a;
-  border-left: 1px solid #333;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
   width: 300px;
   display: flex;
   flex-direction: column;
@@ -11,7 +11,7 @@
 
 .subtitles-hint {
   font-size: 13px;
-  color: #888;
+  color: var(--text-secondary);
   margin: 0;
 }
 
@@ -24,7 +24,7 @@
 
 .subtitles-filename {
   font-size: 13px;
-  color: #fff;
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -48,7 +48,7 @@
 
 .subtitles-label {
   font-size: 12px;
-  color: #888;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -60,7 +60,7 @@
 }
 
 .subtitles-anim-card {
-  background: #2a2a2a;
+  background: var(--bg-card);
   border: 2px solid transparent;
   border-radius: 6px;
   padding: 8px 10px;
@@ -69,19 +69,19 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  color: #ccc;
+  color: var(--text-soft);
   transition: all 0.2s ease;
 }
 
 .subtitles-anim-card:hover {
-  background: #333;
-  color: #fff;
+  background: var(--border);
+  color: var(--text-primary);
 }
 
 .subtitles-anim-card.active {
-  border-color: #007aff;
-  background: #252d3a;
-  color: #fff;
+  border-color: var(--select);
+  background: var(--select-bg);
+  color: var(--text-primary);
 }
 
 .subtitles-anim-name {
@@ -91,13 +91,13 @@
 
 .subtitles-anim-desc {
   font-size: 11px;
-  color: #888;
+  color: var(--text-secondary);
 }
 
 .subtitles-select {
-  background: #2a2a2a;
-  color: #fff;
-  border: 1px solid #333;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 6px 8px;
   font-size: 13px;
@@ -106,7 +106,7 @@
 .subtitles-slider {
   width: 100%;
   -webkit-appearance: none;
-  background: #333;
+  background: var(--border);
   height: 4px;
   border-radius: 2px;
   outline: none;
@@ -116,7 +116,7 @@
   -webkit-appearance: none;
   width: 16px;
   height: 16px;
-  background: #007aff;
+  background: var(--select);
   border-radius: 50%;
   cursor: pointer;
   border: 2px solid #fff;
@@ -136,7 +136,7 @@
 
 .subtitles-color-field label {
   font-size: 11px;
-  color: #888;
+  color: var(--text-secondary);
 }
 
 .subtitles-color-field input[type='color'] {
@@ -154,7 +154,7 @@
 }
 
 .subtitles-position-row .btn-secondary.active {
-  border-color: #007aff;
-  background: #252d3a;
-  color: #fff;
+  border-color: var(--select);
+  background: var(--select-bg);
+  color: var(--text-primary);
 }

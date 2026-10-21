@@ -35,6 +35,12 @@ function aboutHtml(title, message, note) {
     font-family: inherit;
   }
   button:hover { background: #f06a00; }
+  /* The window follows the app's theme (nativeTheme drives this query). */
+  @media (prefers-color-scheme: light) {
+    body { background: #f2f2f5; color: #1c1c1e; }
+    p { color: #5b5b66; }
+    p.note { color: #8c8c96; }
+  }
 </style>
 </head>
 <body>
@@ -57,7 +63,7 @@ function showAboutWindow({ parent, title, message, note }) {
     parent,
     modal: true,
     title,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#1a1a1a', // replaced by the page's own background once it paints
     autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,

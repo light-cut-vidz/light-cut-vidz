@@ -356,3 +356,188 @@ describe('perspective — preview geometry matches the real export', () => {
   }, 60000)
 })
 
+
+// ── Quality, resolution, GIF options, stabilisation, hardware ───────────────
+
+const sizeOf = (file) => fs.statSync(file).size
+
+function countFrames(file) {
+  const { spawnSync } = req('child_process')
+  const r = spawnSync(FFMPEG, ['-hide_banner', '-i', file, '-f', 'null', '-'], { encoding: 'utf-8' })
+  const all = [...r.stderr.matchAll(/frame=\s*(\d+)/g)]
+  return Number(all[all.length - 1][1])
+}
+
+describe('export quality', () => {
+  it('"small" makes a clearly smaller file than "high", for every encoder', async () => {
+    for (const format of ['mp4', 'webm']) {
+      const high = await doExport(`q-high.${format}`, { format, quality: 'high', segments: [{ start: 0, end: 4 }] })
+      const small = await doExport(`q-small.${format}`, { format, quality: 'small', segments: [{ start: 0, end: 4 }] })
+      expect(sizeOf(small.out), format).toBeLessThan(sizeOf(high.out) * 0.7)
+    }
+  }, 180000)
+
+  it('balanced sits between the two', async () => {
+    const [high, balanced, small] = await Promise.all(['high', 'balanced', 'small'].map(q => doExport(`q3-${q}.mp4`, { quality: q, segments: [{ start: 0, end: 4 }] })))
+    expect(sizeOf(small.out)).toBeLessThan(sizeOf(balanced.out))
+    expect(sizeOf(balanced.out)).toBeLessThan(sizeOf(high.out))
+  }, 180000)
+})
+
+describe('export resolution', () => {
+  it('scales down to the requested height, keeping the aspect ratio and an even width', async () => {
+    const { meta } = await doExport('r240.mp4', { resolution: 240 })
+    expect(video(meta)).toMatchObject({ height: 240, width: 426 })
+  }, 60000)
+
+  it('never upscales a smaller source', async () => {
+    const { meta } = await doExport('r1080.mp4', { resolution: 1080 })
+    expect(video(meta)).toMatchObject({ width: 640, height: 360 })
+  }, 60000)
+
+  it('applies to the picture as exported (after rotation)', async () => {
+    const { meta } = await doExport('r-rot.mp4', { rotation: 90, resolution: 320 })
+    expect(video(meta)).toMatchObject({ height: 320, width: 180 })
+  }, 60000)
+
+  it('works together with subtitles (the .ass follows the scaled picture)', async () => {
+    const style = { fontFamily: 'DejaVu Sans', fontSize: 8, color: '#ffffff', outlineColor: '#000000', outlineWidth: 2, backgroundColor: '#000000', backgroundOpacity: 0, position: 'bottom', accentColor: '#22d3ee' }
+    const { meta } = await doExport('r-subs.mp4', { resolution: 180, segments: [{ start: 0, end: 2 }], subtitles: { cues: [{ id: 1, start: 0, end: 2, text: 'HI' }], style, animation: 'sentence-fade' } })
+    expect(video(meta).height).toBe(180)
+  }, 120000)
+
+  it('is ignored for a GIF (its size is its width)', async () => {
+    const { meta } = await doExport('r.gif', { format: 'gif', resolution: 200, gifWidth: 320, segments: [{ start: 0, end: 1 }] })
+    expect(video(meta).width).toBe(320)
+  }, 60000)
+})
+
+describe('GIF options', () => {
+  const clip = { segments: [{ start: 0, end: 2 }] }
+
+  it('honours the requested width and never upscales', async () => {
+    expect(video((await doExport('g200.gif', { format: 'gif', gifWidth: 200, ...clip })).meta).width).toBe(200)
+    expect(video((await doExport('g1000.gif', { format: 'gif', gifWidth: 1000, ...clip })).meta).width).toBe(640)
+  }, 120000)
+
+  it('honours the frame rate', async () => {
+    const ten = await doExport('g10.gif', { format: 'gif', gifFps: 10, gifWidth: 160, ...clip })
+    const twenty = await doExport('g20.gif', { format: 'gif', gifFps: 20, gifWidth: 160, ...clip })
+    expect(countFrames(ten.out)).toBe(20)
+    expect(countFrames(twenty.out)).toBe(40)
+  }, 120000)
+
+  it('loops forever', async () => {
+    const { out } = await doExport('gloop.gif', { format: 'gif', gifWidth: 100, ...clip })
+    const bytes = fs.readFileSync(out)
+    expect(bytes.includes(Buffer.from('NETSCAPE2.0'))).toBe(true)
+  }, 60000)
+
+  it('"small" quality is smaller than "high", and both are valid GIFs', async () => {
+    const high = await doExport('gq-high.gif', { format: 'gif', quality: 'high', gifWidth: 320, ...clip })
+    const small = await doExport('gq-small.gif', { format: 'gif', quality: 'small', gifWidth: 320, ...clip })
+    expect(video(high.meta).codec_name).toBe('gif')
+    expect(sizeOf(small.out)).toBeLessThan(sizeOf(high.out))
+  }, 120000)
+
+  it('burns subtitles into a GIF with the same options', async () => {
+    const style = { fontFamily: 'DejaVu Sans', fontSize: 10, color: '#ffffff', outlineColor: '#000000', outlineWidth: 2, backgroundColor: '#000000', backgroundOpacity: 0, position: 'bottom', accentColor: '#22d3ee' }
+    const { meta, out } = await doExport('gsubs.gif', { format: 'gif', gifWidth: 240, gifFps: 10, segments: [{ start: 0, end: 2 }], subtitles: { cues: [{ id: 1, start: 0, end: 2, text: 'HI' }], style, animation: 'sentence-fade' } })
+    expect(video(meta).width).toBe(240)
+    expect(countFrames(out)).toBe(20)
+  }, 120000)
+})
+
+describe('stabilisation', () => {
+  let shaky
+  /** Mean absolute difference between consecutive frames: lower = steadier. */
+  function jitter(file) {
+    const raw = execFileSync(FFMPEG, ['-v', 'error', '-i', file, '-vf', 'scale=160:90,format=gray', '-f', 'rawvideo', '-'], { maxBuffer: 1 << 28 })
+    const n = 160 * 90
+    let sum = 0
+    let count = 0
+    for (let f = 1; f < raw.length / n; f++) {
+      let d = 0
+      for (let i = 0; i < n; i++) d += Math.abs(raw[f * n + i] - raw[(f - 1) * n + i])
+      sum += d / n
+      count++
+    }
+    return sum / count
+  }
+
+  beforeAll(() => {
+    shaky = path.join(dir, 'shaky.mp4')
+    execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', "testsrc2=s=960x600:r=25:d=6,crop=640:360:x='160+40*sin(t*13)':y='120+30*sin(t*17)'",
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', shaky])
+  }, 60000)
+
+  it('steadies a shaky clip, more with a stronger level', async () => {
+    const run1 = (level) => doExport(`stab-${level}.mp4`, { stabilize: level, segments: [{ start: 0, end: 6 }] }, { input: shaky })
+    const off = jitter((await run1('off')).out)
+    const light = jitter((await run1('light')).out)
+    const normal = jitter((await run1('normal')).out)
+    expect(light).toBeLessThan(off * 0.75)
+    expect(normal).toBeLessThan(off * 0.6)
+    expect(normal).toBeLessThanOrEqual(light)
+  }, 180000)
+
+  it('keeps the output size and duration', async () => {
+    const { meta } = await doExport('stab-size.mp4', { stabilize: 'normal', segments: [{ start: 1, end: 4 }] }, { input: shaky })
+    expect(video(meta)).toMatchObject({ width: 640, height: 360 })
+    expect(meta.format.duration).toBeCloseTo(3, 0)
+  }, 120000)
+
+  it('works with cuts, speed, a crop and a rotation at once', async () => {
+    const { meta } = await doExport('stab-all.mp4', { stabilize: 'light', speed: 2, rotation: 90, crop: { x: 0, y: 0, w: 600, h: 340 }, segments: [{ start: 0, end: 2 }, { start: 3, end: 5 }] }, { input: shaky })
+    expect(video(meta)).toMatchObject({ width: 340, height: 600 })
+    expect(meta.format.duration).toBeCloseTo(2, 0)
+  }, 120000)
+
+  it('works together with subtitles (three passes)', async () => {
+    const style = { fontFamily: 'DejaVu Sans', fontSize: 8, color: '#ffffff', outlineColor: '#000000', outlineWidth: 2, backgroundColor: '#000000', backgroundOpacity: 0, position: 'bottom', accentColor: '#22d3ee' }
+    const progress = []
+    const options = validateExportOptions({ inputPath: shaky, outputPath: path.join(dir, 'stab-subs.mp4'), format: 'mp4', stabilize: 'light', segments: [{ start: 0, end: 3 }], subtitles: { cues: [{ id: 1, start: 0, end: 3, text: 'HI' }], style, animation: 'sentence-fade' } })
+    const workDir = fs.mkdtempSync(path.join(dir, 'w3-'))
+    await exportVideo({ run, probe, getFilterFfmpeg, sendProgress: p => progress.push(p), options, workDir })
+    expect(video(await probe(options.outputPath))).toBeTruthy()
+    expect([...progress].sort((a, b) => a - b)).toEqual(progress) // one bar across three passes
+    expect(Math.max(...progress)).toBeLessThanOrEqual(99)
+  }, 180000)
+
+  it('survives an awkward scratch path', async () => {
+    const { meta } = await doExport('stab-path.mp4', { stabilize: 'light', segments: [{ start: 0, end: 2 }] }, { input: shaky, workName: "it's a, [stab];dir" })
+    expect(video(meta)).toBeTruthy()
+  }, 120000)
+
+  it('can be cancelled during the analysis pass', async () => {
+    const options = validateExportOptions({ inputPath: shaky, outputPath: path.join(dir, 'stab-cancel.mp4'), format: 'mp4', stabilize: 'strong', segments: [{ start: 0, end: 6 }] })
+    const workDir = fs.mkdtempSync(path.join(dir, 'wc-'))
+    let handle
+    const killing = (args, onProgress) => { handle = ffmpeg.run(args, { onProgress }); setTimeout(() => handle.kill(), 50); return handle.promise }
+    await expect(exportVideo({ run: killing, probe, getFilterFfmpeg, sendProgress() {}, options, workDir })).rejects.toThrow('cancelled')
+  }, 60000)
+})
+
+describe('hardware detection against the real binary', () => {
+  it('reports a (possibly empty) list and never throws', async () => {
+    const { detectHardware } = requireSrc('main/lib/hardware.js')
+    const found = await detectHardware({ run: (a) => run(a), platform: process.platform })
+    expect(Array.isArray(found)).toBe(true)
+    // The bundled Linux build has no hardware encoder compiled in.
+    if (process.platform === 'linux') expect(found).toEqual([])
+  }, 60000)
+
+  it('reports the stabilisation filters of this build', async () => {
+    const { hasStabilization } = requireSrc('main/lib/hardware.js')
+    expect(hasStabilization(await ffmpeg.query(['-filters']))).toBe(true)
+  }, 60000)
+
+  // Only runs where a hardware encoder really works (e.g. an Apple Silicon Mac).
+  it('exports with the first working hardware encoder', async (ctx) => {
+    const { detectHardware } = requireSrc('main/lib/hardware.js')
+    const [hardware] = await detectHardware({ run: (a) => run(a), platform: process.platform })
+    if (!hardware) return ctx.skip()
+    const { meta } = await doExport('hw.mp4', { hardware, segments: [{ start: 0, end: 2 }] })
+    expect(video(meta)).toMatchObject({ codec_name: 'h264', width: 640, height: 360 })
+  }, 120000)
+})

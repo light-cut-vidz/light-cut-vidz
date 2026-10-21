@@ -1,6 +1,8 @@
 import { useState, useCallback, useRef } from 'react'
 import type { TrimSegment, CropRect, SubtitlesState } from '../App'
 
+export type StabilizeLevel = 'off' | 'light' | 'normal' | 'strong'
+
 export interface EditableState {
   speed: number
   muted: boolean
@@ -12,6 +14,8 @@ export interface EditableState {
   perspectiveHorizontal: number
   perspectiveVertical: number
   subtitles: SubtitlesState | null
+  /** Applied at export (two passes), not in the live preview. */
+  stabilize: StabilizeLevel
 }
 
 export const defaultEditable: EditableState = {
@@ -25,6 +29,7 @@ export const defaultEditable: EditableState = {
   perspectiveHorizontal: 0,
   perspectiveVertical: 0,
   subtitles: null,
+  stabilize: 'off',
 }
 
 // Bounds memory on very long sessions; older steps fall off the undo stack.

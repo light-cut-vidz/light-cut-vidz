@@ -20,6 +20,19 @@ beforeEach(() => {
     cancelFfmpeg: vi.fn().mockResolvedValue(undefined),
     saveProject: vi.fn().mockResolvedValue(null),
     getChangelog: vi.fn().mockResolvedValue([]),
+    getCapabilities: vi.fn().mockResolvedValue({ hardware: [], stabilization: true }),
+    queueAdd: vi.fn().mockResolvedValue({ id: 1 }),
+    queueList: vi.fn().mockResolvedValue([]),
+    queueCancel: vi.fn().mockResolvedValue(true),
+    queueClearFinished: vi.fn().mockResolvedValue(undefined),
+    queueReveal: vi.fn().mockResolvedValue(undefined),
+    onQueueUpdate: vi.fn(() => () => {}),
+    listRecent: vi.fn().mockResolvedValue([]),
+    openRecent: vi.fn().mockResolvedValue(undefined),
+    removeRecent: vi.fn().mockResolvedValue(undefined),
+    clearRecent: vi.fn().mockResolvedValue(undefined),
+    getSettings: vi.fn().mockResolvedValue({ theme: 'system' }),
+    setTheme: vi.fn().mockResolvedValue(undefined),
     onMenuShowChangelog: vi.fn(() => () => {}),
     setDirty: vi.fn(),
     onMenuSaveProject: vi.fn(() => () => {}),
@@ -1209,5 +1222,105 @@ describe('App — filter previews', () => {
     await waitFor(() => expect(container.querySelector('.filters-panel')).toBeTruthy())
     expect(container.querySelector('.filter-preview-img')).toBeNull() // placeholders instead
     toDataURL.mockRestore(); getContext.mockRestore(); log.mockRestore()
+  })
+})
+
+describe('App — stabilisation, queue and recent files', () => {
+  /** A loaded video that reports a duration, so there is something to export. */
+  async function withDuration() {
+    const view = await loadedApp()
+    const video = view.container.querySelector('video') as HTMLVideoElement
+    Object.defineProperty(video, 'duration', { configurable: true, get: () => 100 })
+    act(() => { fireEvent.loadedMetadata(video) })
+    return view
+  }
+
+  it('sets the stabilisation level from the toolbar, undoably, and exports it', async () => {
+    const { container } = await withDuration()
+    window.electronAPI.saveVideo = vi.fn().mockResolvedValue('/tmp/s.mp4')
+    fireEvent.click(container.querySelectorAll('.stab-btn')[2]) // normal
+    await waitFor(() => expect(container.querySelectorAll('.stab-btn')[2].getAttribute('aria-pressed')).toBe('true'))
+    expect(screen.getByTitle(/undo|annuler/i)).not.toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /^export(er)?$/i }))
+    await waitFor(() => expect(container.querySelector('.modal')).toBeTruthy())
+    const exportButtons = screen.getAllByRole('button', { name: /^export(er)?$/i })
+    fireEvent.click(exportButtons[exportButtons.length - 1])
+    await waitFor(() => expect(window.electronAPI.exportVideo).toHaveBeenCalled())
+    expect(vi.mocked(window.electronAPI.exportVideo).mock.calls[0][0]).toMatchObject({ stabilize: 'normal' })
+  })
+
+  it('saves the stabilisation level in the project', async () => {
+    const saveProject = vi.fn().mockResolvedValue('/p/x.lcvproj')
+    window.electronAPI = { ...window.electronAPI, saveProject }
+    const { container } = await loadedApp()
+    fireEvent.click(container.querySelectorAll('.stab-btn')[3])
+    const calls = vi.mocked(window.electronAPI.onMenuSaveProject).mock.calls as unknown as Array<[() => void]>
+    await act(async () => { calls[calls.length - 1][0]() })
+    expect(saveProject).toHaveBeenCalledWith(expect.objectContaining({ state: expect.objectContaining({ stabilize: 'strong' }) }))
+  })
+
+  it('tells the user when an export was added to the queue', async () => {
+    const { container } = await withDuration()
+    fireEvent.click(screen.getByRole('button', { name: /^export(er)?$/i }))
+    await waitFor(() => expect(container.querySelector('.modal')).toBeTruthy())
+    window.electronAPI.saveVideo = vi.fn().mockResolvedValue('/tmp/q.mp4')
+    fireEvent.click(screen.getByRole('button', { name: /add to queue|ajouter à la file/i }))
+    await waitFor(() => expect(container.querySelector('.toast')).toBeTruthy())
+    expect(container.querySelector('.modal')).toBeNull()
+  })
+
+  describe('recent files on the home screen', () => {
+    const entries = [
+      { kind: 'video' as const, path: '/v/a.mp4', name: 'a.mp4', dir: '/v', openedAt: 2 },
+      { kind: 'project' as const, path: '/v/p.lcvproj', name: 'p.lcvproj', dir: '/v', openedAt: 1 },
+    ]
+
+    it('lists them', async () => {
+      window.electronAPI = { ...window.electronAPI, listRecent: vi.fn().mockResolvedValue(entries) }
+      const { container } = r()
+      await waitFor(() => expect(container.querySelectorAll('.recent-item')).toHaveLength(2))
+    })
+
+    it('opens one through the main process', async () => {
+      window.electronAPI = { ...window.electronAPI, listRecent: vi.fn().mockResolvedValue(entries) }
+      const { container } = r()
+      await waitFor(() => expect(container.querySelector('.recent-open')).toBeTruthy())
+      fireEvent.click(container.querySelector('.recent-open')!)
+      expect(window.electronAPI.openRecent).toHaveBeenCalledWith('/v/a.mp4')
+    })
+
+    it('removes one and refreshes the list', async () => {
+      const listRecent = vi.fn().mockResolvedValueOnce(entries).mockResolvedValueOnce([entries[1]])
+      window.electronAPI = { ...window.electronAPI, listRecent }
+      const { container } = r()
+      await waitFor(() => expect(container.querySelectorAll('.recent-item')).toHaveLength(2))
+      fireEvent.click(container.querySelector('.recent-remove')!)
+      expect(window.electronAPI.removeRecent).toHaveBeenCalledWith('/v/a.mp4')
+      await waitFor(() => expect(container.querySelectorAll('.recent-item')).toHaveLength(1))
+    })
+
+    it('clears the list', async () => {
+      const listRecent = vi.fn().mockResolvedValueOnce(entries).mockResolvedValueOnce([])
+      window.electronAPI = { ...window.electronAPI, listRecent }
+      const { container } = r()
+      await waitFor(() => expect(container.querySelector('.recent-clear')).toBeTruthy())
+      fireEvent.click(container.querySelector('.recent-clear')!)
+      expect(window.electronAPI.clearRecent).toHaveBeenCalled()
+      await waitFor(() => expect(container.querySelector('.recent')).toBeNull())
+    })
+
+    it('copes with the list failing to load', async () => {
+      window.electronAPI = { ...window.electronAPI, listRecent: vi.fn().mockRejectedValue(new Error('x')) }
+      const { container } = r()
+      await waitFor(() => expect(window.electronAPI.listRecent).toHaveBeenCalled())
+      expect(container.querySelector('.dropzone')).toBeTruthy()
+    })
+
+    it('does not ask for it while editing', async () => {
+      const { container } = await loadedApp()
+      const calls = vi.mocked(window.electronAPI.listRecent).mock.calls.length
+      fireEvent.click(container.querySelector('.tool-toggle-btn')!)
+      expect(vi.mocked(window.electronAPI.listRecent).mock.calls.length).toBe(calls)
+    })
   })
 })

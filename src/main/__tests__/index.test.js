@@ -56,7 +56,16 @@ function describeArgs(args) {
   }
 }
 
+// Encoders a trial encode succeeds with, for the hardware-detection probe.
+let workingEncoders = new Set()
+let filtersText = ' ... vidstabdetect V->V\n ... vidstabtransform V->V'
+
 function makeRun(args, opts) {
+  // A tiny synthetic encode is the hardware-detection probe, not an export.
+  if (args.includes('lavfi')) {
+    const encoder = args[args.indexOf('-c:v') + 1]
+    return { promise: workingEncoders.has(encoder) ? Promise.resolve() : Promise.reject(new Error('Encoder not found')), kill() {} }
+  }
   const record = describeArgs(args)
   commands.push(record)
   const index = commands.length - 1
@@ -78,7 +87,7 @@ function makeRun(args, opts) {
 }
 
 const probeSpy = vi.fn(() => (probeError ? Promise.reject(probeError) : Promise.resolve(probeResult)))
-const createFfmpegSpy = vi.fn(() => ({ run: makeRun, probe: probeSpy }))
+const createFfmpegSpy = vi.fn(() => ({ run: makeRun, probe: probeSpy, query: async () => filtersText }))
 
 // ── Scratch directory ────────────────────────────────────────────────────────
 // Real files rather than an fs double: swapping the built-in `fs` breaks the
@@ -151,8 +160,9 @@ const electronDouble = {
   },
   net: { fetch: (...a) => netFetch(...a) },
   Menu: { setApplicationMenu: vi.fn(), getApplicationMenu: () => null, buildFromTemplate: (t) => t },
-  shell: { openExternal: vi.fn() },
+  shell: { openExternal: vi.fn(), showItemInFolder: vi.fn() },
   autoUpdater: { on: (event, fn) => nativeUpdaterHooks.set(event, fn) },
+  nativeTheme: { themeSource: 'system', shouldUseDarkColors: true },
 }
 
 installElectron(electronDouble)
@@ -178,7 +188,12 @@ function invoke(channel, ...args) {
   return handler(event, ...args)
 }
 
-beforeEach(() => {
+/** Startup is asynchronous (settings are read first): wait until the window exists. */
+async function booted() {
+  await vi.waitFor(() => expect(windowHooks.has('close')).toBe(true))
+}
+
+beforeEach(async () => {
   vi.clearAllMocks()
   for (const f of fs.readdirSync(tmpDir)) fs.rmSync(path.join(tmpDir, f), { recursive: true, force: true })
   commands = []
@@ -186,13 +201,17 @@ beforeEach(() => {
   holdRunAt = -1
   probeError = null
   probeResult = defaultProbe()
+  workingEncoders = new Set()
+  filtersText = ' ... vidstabdetect V->V\n ... vidstabtransform V->V'
   sent.length = 0
   ipcHandlers.clear()
   ipcListeners.clear()
   appHooks.clear()
   windowHooks.clear()
   nativeUpdaterHooks.clear()
+  electronDouble.nativeTheme.themeSource = 'system'
   freshRequire('main/index.js')
+  await booted()
 })
 
 afterAll(() => {
@@ -266,7 +285,9 @@ describe('startup wiring', () => {
   it('registers every IPC channel the preload can call', () => {
     expect([...ipcHandlers.keys()].sort()).toEqual([
       'changelog:get', 'dialog:openSubtitle', 'dialog:openVideo', 'dialog:saveVideo',
-      'ffmpeg:cancel', 'ffmpeg:export', 'ffmpeg:preview', 'file:toUrl', 'project:save',
+      'ffmpeg:cancel', 'ffmpeg:capabilities', 'ffmpeg:export', 'ffmpeg:preview', 'file:toUrl', 'project:save',
+      'queue:add', 'queue:cancel', 'queue:clearFinished', 'queue:list', 'queue:reveal',
+      'recent:clear', 'recent:list', 'recent:open', 'recent:remove', 'settings:get', 'settings:setTheme',
     ])
     expect([...ipcListeners.keys()].sort()).toEqual(['app:setDirty', 'menu:setLanguage', 'menu:setUndoRedoState'])
   })
@@ -463,16 +484,31 @@ describe('ffmpeg:export — guards', () => {
     await expect(invoke('ffmpeg:export', { ...baseExport, rotation: '0;movie=/etc/passwd' })).rejects.toThrow('rotation')
   })
 
-  it('refuses a second export while one is running', async () => {
-    await pickFiles()
+  // Exports run one after the other: a second one waits instead of being refused.
+  it('queues a second export behind the first and runs it afterwards', async () => {
+    await pickFiles({ output: '/out1.mp4' })
+    await pickFiles({ input: '/in2.mp4', output: '/out2.mp4' })
     holdRunAt = 0
-    const first = invoke('ffmpeg:export', baseExport)
+    const first = invoke('ffmpeg:export', { ...baseExport, outputPath: '/out1.mp4' })
     await vi.waitFor(() => expect(commands).toHaveLength(1))
+    const second = invoke('ffmpeg:export', { ...baseExport, inputPath: '/in2.mp4', outputPath: '/out2.mp4' })
+    await Promise.resolve()
+    expect(commands).toHaveLength(1) // not started yet
+    expect((await invoke('queue:list')).map(j => j.status)).toEqual(['running', 'queued'])
 
-    await expect(invoke('ffmpeg:export', baseExport)).rejects.toThrow('already running')
-
-    await invoke('ffmpeg:cancel')
+    await invoke('ffmpeg:cancel') // stops what the dialog started, including the waiting one
     await expect(first).rejects.toThrow('cancelled')
+    await expect(second).rejects.toThrow('cancelled')
+  })
+
+  it('runs the second export once the first has finished', async () => {
+    await pickFiles({ output: '/out1.mp4' })
+    await pickFiles({ input: '/in2.mp4', output: '/out2.mp4' })
+    const first = invoke('ffmpeg:export', { ...baseExport, outputPath: '/out1.mp4' })
+    const second = invoke('ffmpeg:export', { ...baseExport, inputPath: '/in2.mp4', outputPath: '/out2.mp4' })
+    await expect(first).resolves.toMatchObject({ outputPath: '/out1.mp4' })
+    await expect(second).resolves.toMatchObject({ outputPath: '/out2.mp4' })
+    expect(commands.map(c => c.output)).toEqual(['/out1.mp4', '/out2.mp4'])
   })
 })
 
@@ -1031,5 +1067,321 @@ describe('changelog IPC and menu', () => {
     const win = { webContents: { send: vi.fn() } }
     menuCalls.at(-1).onShowChangelog(win)
     expect(win.webContents.send).toHaveBeenCalledWith('menu:showChangelog')
+  })
+})
+
+// ── Queue, capabilities, hardware and stabilisation ─────────────────────────
+
+describe('export queue IPC', () => {
+  it('queue:add returns at once and the job shows up in the list', async () => {
+    await pickFiles({ output: '/q1.mp4' })
+    holdRunAt = 0
+    const { id } = await invoke('queue:add', { ...baseExport, outputPath: '/q1.mp4' })
+    expect(typeof id).toBe('number')
+    await vi.waitFor(() => expect(commands).toHaveLength(1))
+    expect(await invoke('queue:list')).toEqual([expect.objectContaining({ id, name: 'q1.mp4', format: 'mp4', status: 'running' })])
+    await invoke('queue:cancel', id)
+  })
+
+  it('runs queued jobs in order without anyone waiting for them', async () => {
+    await pickFiles({ output: '/a.mp4' })
+    await pickFiles({ input: '/in2.mp4', output: '/b.mp4' })
+    await invoke('queue:add', { ...baseExport, outputPath: '/a.mp4' })
+    await invoke('queue:add', { ...baseExport, inputPath: '/in2.mp4', outputPath: '/b.mp4' })
+    await vi.waitFor(async () => expect((await invoke('queue:list')).map(j => j.status)).toEqual(['done', 'done']))
+    expect(commands.map(c => c.output)).toEqual(['/a.mp4', '/b.mp4'])
+  })
+
+  it('cancels a waiting job without running it, and a running one by killing ffmpeg', async () => {
+    await pickFiles({ output: '/a.mp4' })
+    await pickFiles({ input: '/in2.mp4', output: '/b.mp4' })
+    holdRunAt = 0
+    const a = await invoke('queue:add', { ...baseExport, outputPath: '/a.mp4' })
+    const b = await invoke('queue:add', { ...baseExport, inputPath: '/in2.mp4', outputPath: '/b.mp4' })
+    await vi.waitFor(() => expect(commands).toHaveLength(1))
+    expect(await invoke('queue:cancel', b.id)).toBe(true)
+    expect(await invoke('queue:cancel', a.id)).toBe(true)
+    expect(commands[0].killedWith).toBe('SIGKILL')
+    await vi.waitFor(async () => expect((await invoke('queue:list')).map(j => j.status)).toEqual(['cancelled', 'cancelled']))
+    expect(commands).toHaveLength(1)
+  })
+
+  it('keeps a failed job in the list with its error, and carries on with the next', async () => {
+    await pickFiles({ output: '/a.mp4' })
+    await pickFiles({ input: '/in2.mp4', output: '/b.mp4' })
+    failRunAt = 0
+    await invoke('queue:add', { ...baseExport, outputPath: '/a.mp4' })
+    await invoke('queue:add', { ...baseExport, inputPath: '/in2.mp4', outputPath: '/b.mp4' })
+    await vi.waitFor(async () => expect((await invoke('queue:list')).map(j => j.status)).toEqual(['error', 'done']))
+    expect((await invoke('queue:list'))[0].error).toBe('ffmpeg exploded')
+  })
+
+  it('refuses two active jobs that write the same file', async () => {
+    await pickFiles({ output: '/same.mp4' })
+    holdRunAt = 0
+    await invoke('queue:add', { ...baseExport, outputPath: '/same.mp4' })
+    await expect(invoke('queue:add', { ...baseExport, outputPath: '/same.mp4' })).rejects.toThrow('already writes to that file')
+    await invoke('queue:cancel', (await invoke('queue:list'))[0].id)
+  })
+
+  it('applies the same guards as a direct export', async () => {
+    await expect(invoke('queue:add', baseExport)).rejects.toThrow('not opened through the app')
+    showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: ['/in.mp4'] })
+    await invoke('dialog:openVideo')
+    await expect(invoke('queue:add', baseExport)).rejects.toThrow('save dialog')
+    await pickFiles()
+    await expect(invoke('queue:add', { ...baseExport, segments: [] })).rejects.toThrow('Nothing to export')
+  })
+
+  it('clearFinished forgets finished jobs only', async () => {
+    await pickFiles({ output: '/a.mp4' })
+    await pickFiles({ input: '/in2.mp4', output: '/b.mp4' })
+    holdRunAt = 1
+    await invoke('queue:add', { ...baseExport, outputPath: '/a.mp4' })
+    await invoke('queue:add', { ...baseExport, inputPath: '/in2.mp4', outputPath: '/b.mp4' })
+    await vi.waitFor(async () => expect((await invoke('queue:list')).map(j => j.status)).toEqual(['done', 'running']))
+    await invoke('queue:clearFinished')
+    expect((await invoke('queue:list')).map(j => j.name)).toEqual(['b.mp4'])
+    await invoke('queue:cancel', (await invoke('queue:list'))[0].id)
+  })
+
+  it('reveals a finished job in the file manager, and nothing else', async () => {
+    await pickFiles({ output: '/shown.mp4' })
+    const { id } = await invoke('queue:add', { ...baseExport, outputPath: '/shown.mp4' })
+    await vi.waitFor(async () => expect((await invoke('queue:list'))[0].status).toBe('done'))
+    await invoke('queue:reveal', id)
+    expect(electronDouble.shell.showItemInFolder).toHaveBeenCalledWith('/shown.mp4')
+    electronDouble.shell.showItemInFolder.mockClear()
+    await invoke('queue:reveal', 9999)
+    expect(electronDouble.shell.showItemInFolder).not.toHaveBeenCalled()
+  })
+
+  it('stops the running export when the app quits', async () => {
+    await pickFiles()
+    holdRunAt = 0
+    await invoke('queue:add', baseExport)
+    await vi.waitFor(() => expect(commands).toHaveLength(1))
+    appHooks.get('before-quit')()
+    expect(commands[0].killedWith).toBe('SIGKILL')
+  })
+
+  describe('closing the window', () => {
+    it('asks first while an export is running, with its own message', async () => {
+      await pickFiles()
+      holdRunAt = 0
+      await invoke('queue:add', baseExport)
+      await vi.waitFor(() => expect(commands).toHaveLength(1))
+      showMessageBoxSync.mockReturnValueOnce(1)
+      const event = { preventDefault: vi.fn() }
+      windowHooks.get('close')(event)
+      expect(showMessageBoxSync.mock.calls[0][1].message).toMatch(/export/i)
+      expect(event.preventDefault).toHaveBeenCalled()
+      await invoke('queue:cancel', (await invoke('queue:list'))[0].id)
+    })
+  })
+})
+
+describe('ffmpeg capabilities and the options that depend on them', () => {
+  it('reports the working hardware encoders and the stabilisation filters', async () => {
+    workingEncoders = new Set(['h264_vaapi'])
+    const caps = await invoke('ffmpeg:capabilities')
+    expect(caps).toEqual({ hardware: process.platform === 'linux' ? ['vaapi'] : [], stabilization: true })
+  })
+
+  it('probes only once', async () => {
+    await invoke('ffmpeg:capabilities')
+    const before = createFfmpegSpy.mock.results[0].value
+    await invoke('ffmpeg:capabilities')
+    expect(createFfmpegSpy).toHaveBeenCalledTimes(1)
+    expect(before).toBeTruthy()
+  })
+
+  it('reports no stabilisation when the filters are missing', async () => {
+    filtersText = ' ... scale V->V'
+    expect((await invoke('ffmpeg:capabilities')).stabilization).toBe(false)
+  })
+
+  it('uses a hardware encoder this machine really has', async () => {
+    if (process.platform !== 'linux') return
+    workingEncoders = new Set(['h264_nvenc'])
+    await pickFiles()
+    await invoke('ffmpeg:export', { ...baseExport, hardware: 'nvenc' })
+    expect(commands.at(-1).args).toContain('h264_nvenc')
+  })
+
+  it('silently falls back to software for one it does not have', async () => {
+    await pickFiles()
+    await invoke('ffmpeg:export', { ...baseExport, hardware: 'nvenc' })
+    expect(commands.at(-1).args).toContain('libx264')
+    expect(commands.at(-1).args).not.toContain('h264_nvenc')
+  })
+
+  it('refuses stabilisation when this ffmpeg cannot do it', async () => {
+    filtersText = ' ... scale V->V'
+    await pickFiles()
+    await expect(invoke('ffmpeg:export', { ...baseExport, stabilize: 'normal' })).rejects.toThrow('Stabilization is not available')
+  })
+
+  it('runs the stabilisation analysis before the export', async () => {
+    await pickFiles()
+    await invoke('ffmpeg:export', { ...baseExport, stabilize: 'light' })
+    expect(commands).toHaveLength(2)
+    expect(commands[0].complexFilter).toContain('vidstabdetect')
+    expect(commands[1].complexFilter).toContain('vidstabtransform')
+  })
+
+  it('rejects an encoder id it does not know', async () => {
+    await pickFiles()
+    await expect(invoke('ffmpeg:export', { ...baseExport, hardware: 'h264_nvenc -x' })).rejects.toThrow('hardware')
+  })
+
+  it('does not probe the machine for a plain software export', async () => {
+    await pickFiles()
+    await invoke('ffmpeg:export', baseExport)
+    expect(commands).toHaveLength(1)
+  })
+})
+
+describe('using a system ffmpeg', () => {
+  const original = process.env.LIGHTCUTVIDZ_FFMPEG
+  afterAll(() => { if (original === undefined) delete process.env.LIGHTCUTVIDZ_FFMPEG; else process.env.LIGHTCUTVIDZ_FFMPEG = original })
+
+  it('honours LIGHTCUTVIDZ_FFMPEG when it points at a real file', () => {
+    const fake = path.join(tmpDir, 'my-ffmpeg')
+    fs.writeFileSync(fake, '')
+    process.env.LIGHTCUTVIDZ_FFMPEG = fake
+    createFfmpegSpy.mockClear()
+    freshRequire('main/index.js')
+    expect(createFfmpegSpy).toHaveBeenCalledWith({ ffmpegPath: fake })
+  })
+
+  it.each([['a path that does not exist', '/nope/ffmpeg'], ['a relative path', 'ffmpeg'], ['an empty value', '']])('ignores %s', (_n, value) => {
+    process.env.LIGHTCUTVIDZ_FFMPEG = value
+    createFfmpegSpy.mockClear()
+    freshRequire('main/index.js')
+    expect(createFfmpegSpy).toHaveBeenCalledWith({ ffmpegPath: '/bin/ffmpeg' })
+  })
+})
+
+// ── Recent files, theme ─────────────────────────────────────────────────────
+
+describe('recent files', () => {
+  const videoFile = () => { const f = path.join(tmpDir, 'seen.mp4'); fs.writeFileSync(f, 'x'); return f }
+  const recentJson = () => JSON.parse(fs.readFileSync(path.join(tmpDir, 'recent.json'), 'utf-8'))
+
+  it('remembers a video once it is loaded, and persists the list', async () => {
+    const f = videoFile()
+    await invoke('ffmpeg:preview', f)
+    await vi.waitFor(() => expect(recentJson().items.map(i => i.path)).toContain(f))
+    expect((await invoke('recent:list'))[0]).toMatchObject({ kind: 'video', path: f, name: 'seen.mp4', dir: tmpDir })
+  })
+
+  it('lists only files that still exist', async () => {
+    const f = videoFile()
+    await invoke('ffmpeg:preview', f)
+    await invoke('ffmpeg:preview', '/gone/never.mp4')
+    expect((await invoke('recent:list')).map(i => i.path)).toEqual([f])
+  })
+
+  it('moves a re-opened video to the top without duplicating it', async () => {
+    const f = videoFile()
+    const g = path.join(tmpDir, 'other.mp4'); fs.writeFileSync(g, 'x')
+    await invoke('ffmpeg:preview', f); await invoke('ffmpeg:preview', g); await invoke('ffmpeg:preview', f)
+    expect((await invoke('recent:list')).map(i => i.name)).toEqual(['seen.mp4', 'other.mp4'])
+  })
+
+  it('remembers a saved project', async () => {
+    const target = path.join(tmpDir, 'saved')
+    showSaveDialog.mockResolvedValueOnce({ canceled: false, filePath: target })
+    await invoke('project:save', { videoPath: '/a.mp4', state: {} })
+    const list = await invoke('recent:list')
+    expect(list[0]).toMatchObject({ kind: 'project', name: 'saved.lcvproj' })
+  })
+
+  it('opens a project from the list and does not also list its video', async () => {
+    const video = videoFile()
+    const proj = path.join(tmpDir, 'p.lcvproj')
+    fs.writeFileSync(proj, JSON.stringify({ lightcutvidz: 1, videoPath: video, state: {} }))
+    showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [proj] })
+    await Promise.resolve()
+    const win = { webContents: { send: vi.fn() } }
+    await menuCalls.at(-1).onOpenProject(win)
+    expect(win.webContents.send).toHaveBeenCalledWith('menu:loadProject', expect.objectContaining({ videoPath: video }))
+    await invoke('ffmpeg:preview', video) // what the renderer does next
+    expect((await invoke('recent:list')).map(i => i.kind)).toEqual(['project'])
+  })
+
+  it('opens only what is in the list', async () => {
+    const f = videoFile()
+    await invoke('recent:open', f) // not listed yet: ignored
+    expect(electronDouble.dialog.showMessageBox).not.toHaveBeenCalled()
+  })
+
+  it('removes one entry and clears the list', async () => {
+    const f = videoFile()
+    const g = path.join(tmpDir, 'other.mp4'); fs.writeFileSync(g, 'x')
+    await invoke('ffmpeg:preview', f); await invoke('ffmpeg:preview', g)
+    await invoke('recent:remove', f)
+    expect((await invoke('recent:list')).map(i => i.path)).toEqual([g])
+    await invoke('recent:clear')
+    expect(await invoke('recent:list')).toEqual([])
+    expect(recentJson().items).toEqual([])
+  })
+
+  it('rebuilds the menu with the recent files', async () => {
+    const f = videoFile()
+    await invoke('ffmpeg:preview', f)
+    await vi.waitFor(() => expect(menuCalls.at(-1).recent.map(i => i.path)).toContain(f))
+  })
+
+  it('loads the list saved by a previous run at startup', async () => {
+    const f = videoFile()
+    fs.writeFileSync(path.join(tmpDir, 'recent.json'), JSON.stringify({ items: [{ path: f, openedAt: 1 }, { path: '/etc/passwd' }] }))
+    windowHooks.clear()
+    freshRequire('main/index.js')
+    await booted()
+    expect((await invoke('recent:list')).map(i => i.path)).toEqual([f])
+  })
+})
+
+describe('theme', () => {
+  it('defaults to following the system', async () => {
+    expect(await invoke('settings:get')).toEqual({ theme: 'system' })
+  })
+
+  it('applies the choice to the native theme, persists it and rebuilds the menu', async () => {
+    await invoke('settings:setTheme', 'light')
+    expect(electronDouble.nativeTheme.themeSource).toBe('light')
+    expect(JSON.parse(fs.readFileSync(path.join(tmpDir, 'settings.json'), 'utf-8'))).toEqual({ theme: 'light' })
+    expect(menuCalls.at(-1).currentTheme).toBe('light')
+  })
+
+  it('ignores a theme it does not know', async () => {
+    await invoke('settings:setTheme', 'neon')
+    expect(electronDouble.nativeTheme.themeSource).not.toBe('neon')
+    expect(await invoke('settings:get')).toEqual({ theme: 'system' })
+  })
+
+  it('restores the saved theme at startup', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'settings.json'), JSON.stringify({ theme: 'dark' }))
+    windowHooks.clear()
+    freshRequire('main/index.js')
+    await booted()
+    expect(electronDouble.nativeTheme.themeSource).toBe('dark')
+    expect(await invoke('settings:get')).toEqual({ theme: 'dark' })
+  })
+
+  it('ignores a corrupt settings file', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'settings.json'), '{{{')
+    windowHooks.clear()
+    freshRequire('main/index.js')
+    await booted()
+    expect(await invoke('settings:get')).toEqual({ theme: 'system' })
+  })
+
+  it('the View > Theme menu switches it', async () => {
+    await Promise.resolve()
+    menuCalls.at(-1).onSwitchTheme('dark')
+    await vi.waitFor(() => expect(electronDouble.nativeTheme.themeSource).toBe('dark'))
   })
 })
