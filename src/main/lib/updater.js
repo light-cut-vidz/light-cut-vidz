@@ -44,7 +44,20 @@ function setupAutoUpdater({ autoUpdater, dialog, getWindow, t, state }) {
   })
 }
 
-async function checkForUpdates({ autoUpdater, dialog, app, getWindow, t, state, isDev, isMac, isDeb, isManual = false, fromMenu, openExternal, getLang, _fetchText = fetchText,
+/**
+ * One check at a time. The start-up check and a click on "Check for updates"
+ * could overlap and each open its own "update available" dialog; a check asked
+ * for while another is running (or while its dialog is still on screen) joins
+ * it instead of starting a second one.
+ */
+function checkForUpdates(deps) {
+  const { state } = deps
+  if (state.checking) return state.checking
+  state.checking = runCheck(deps).finally(() => { state.checking = null })
+  return state.checking
+}
+
+async function runCheck({ autoUpdater, dialog, app, getWindow, t, state, isDev, isMac, isDeb, isManual = false, fromMenu, openExternal, getLang, _fetchText = fetchText,
   _macHandler = _upgradeMac,
   _debHandler = _upgradeDeb,
   _manualHandler = _upgradeManual,

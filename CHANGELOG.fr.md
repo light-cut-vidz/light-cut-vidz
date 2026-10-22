@@ -5,6 +5,11 @@ La version anglaise est dans [CHANGELOG.md](CHANGELOG.md) — gardez les deux sy
 
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [1.0.6] - 2026-10-22
+
+### Corrigé
+- *Vérifier les mises à jour* pouvait proposer deux fois la même mise à jour quand il tombait en même temps que la vérification automatique du démarrage. Il n'y a plus qu'une vérification à la fois.
+
 ## [1.0.5] - 2026-10-21
 
 ### Corrigé

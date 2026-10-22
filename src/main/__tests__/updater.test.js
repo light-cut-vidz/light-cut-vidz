@@ -179,6 +179,49 @@ describe('checkForUpdates', () => {
     expect(deps.dialog.showMessageBox).not.toHaveBeenCalled()
   })
 
+  describe('overlapping checks', () => {
+    const offers = () => deps.dialog.showMessageBox.mock.calls.filter(c => c[1].title === 'update_available_title')
+
+    beforeEach(() => {
+      deps.autoUpdater.checkForUpdates.mockResolvedValue({ updateInfo: { version: '2.0.0' } })
+      deps.dialog.showMessageBox.mockResolvedValue({ response: 1 })
+    })
+
+    // The start-up check and a click on "Check for updates" used to run side by
+    // side, and each opened its own "update available" dialog.
+    it('offers the update once when the start-up check and a menu check overlap', async () => {
+      await Promise.all([checkForUpdates(deps), checkForUpdates({ ...deps, fromMenu: true })])
+      expect(offers()).toHaveLength(1)
+      expect(deps.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not stack a second offer on one the user has not answered yet', async () => {
+      let answer
+      deps.dialog.showMessageBox.mockImplementationOnce(() => new Promise(res => { answer = res }))
+      const first = checkForUpdates(deps)
+      await vi.waitFor(() => expect(offers()).toHaveLength(1))
+      const second = checkForUpdates({ ...deps, fromMenu: true })
+      await new Promise(res => setTimeout(res, 10))
+      expect(offers()).toHaveLength(1)
+      answer({ response: 1 })
+      await Promise.all([first, second])
+      expect(offers()).toHaveLength(1)
+    })
+
+    it('checks again once the previous check is over (a "Later" is not forever)', async () => {
+      await checkForUpdates(deps)
+      await checkForUpdates({ ...deps, fromMenu: true })
+      expect(offers()).toHaveLength(2)
+    })
+
+    it('is free again after a check that failed', async () => {
+      deps.autoUpdater.checkForUpdates.mockRejectedValueOnce(new Error('network'))
+      await checkForUpdates({ ...deps, fromMenu: true })
+      await checkForUpdates({ ...deps, fromMenu: true })
+      expect(offers()).toHaveLength(1)
+    })
+  })
+
 })
 
 describe('_upgradeMac', () => {

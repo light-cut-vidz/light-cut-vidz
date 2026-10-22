@@ -5,6 +5,11 @@ The French version is in [CHANGELOG.fr.md](CHANGELOG.fr.md) — keep both in ste
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.6] - 2026-10-22
+
+### Fixed
+- *Check for updates* could offer the same update twice when it ran at the same time as the automatic check made at start-up. There is now only one check at a time.
+
 ## [1.0.5] - 2026-10-21
 
 ### Fixed
