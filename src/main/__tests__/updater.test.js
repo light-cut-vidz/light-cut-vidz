@@ -584,6 +584,111 @@ function fakeGet(responses) {
   }
 }
 
+const { fetchLocation, fetchLatestRelease } = requireSrc('main/lib/updater.js')
+
+describe('fetchLocation', () => {
+  it('refuses plain HTTP', async () => {
+    await expect(fetchLocation('http://github.com/x', fakeGet([]))).rejects.toThrow('HTTPS')
+  })
+
+  it('returns where a redirect points, without following it', async () => {
+    const get = fakeGet([{ status: 302, headers: { location: 'https://github.com/o/r/releases/tag/v2.0.0' } }])
+    await expect(fetchLocation('https://github.com/o/r/releases/latest', get)).resolves.toBe('https://github.com/o/r/releases/tag/v2.0.0')
+  })
+
+  it('resolves a relative location', async () => {
+    const get = fakeGet([{ status: 302, headers: { location: '/o/r/releases/tag/v2.0.0' } }])
+    await expect(fetchLocation('https://github.com/o/r/releases/latest', get)).resolves.toBe('https://github.com/o/r/releases/tag/v2.0.0')
+  })
+
+  it('rejects a reply that is not a redirect', async () => {
+    await expect(fetchLocation('https://github.com/x', fakeGet([{ status: 200 }]))).rejects.toThrow('HTTP 200')
+  })
+
+  it('rejects a redirect that leaves the host', async () => {
+    const get = fakeGet([{ status: 302, headers: { location: 'https://evil.example/o/r/releases/tag/v9.9.9' } }])
+    await expect(fetchLocation('https://github.com/o/r/releases/latest', get)).rejects.toThrow('Unexpected redirect')
+  })
+
+  it('rejects a downgrade to plain HTTP', async () => {
+    const get = fakeGet([{ status: 302, headers: { location: 'http://github.com/o/r/releases/tag/v9.9.9' } }])
+    await expect(fetchLocation('https://github.com/o/r/releases/latest', get)).rejects.toThrow('Unexpected redirect')
+  })
+})
+
+// The API allows 60 anonymous requests an hour per IP: on a shared connection
+// the update check used to fail with "GitHub responded 403".
+describe('fetchLatestRelease', () => {
+  const rateLimited = (status = 403) => vi.fn().mockRejectedValue(new Error(`GitHub responded ${status}`))
+  const tagPage = (tag = 'v2.0.0') => vi.fn().mockResolvedValue(`https://github.com/light-cut-vidz/light-cut-vidz/releases/tag/${tag}`)
+
+  it('uses the API when it answers', async () => {
+    const release = { tag_name: 'v2.0.0', assets: [] }
+    const _fetchLocation = vi.fn()
+    await expect(fetchLatestRelease({ _fetchJson: vi.fn().mockResolvedValue(release), _fetchLocation })).resolves.toBe(release)
+    expect(_fetchLocation).not.toHaveBeenCalled()
+  })
+
+  it.each([403, 429])('falls back to the releases page when the API answers %i', async (status) => {
+    const release = await fetchLatestRelease({ _fetchJson: rateLimited(status), _fetchLocation: tagPage('v2.1.0') })
+    expect(release.tag_name).toBe('v2.1.0')
+    expect(release.assets.map(a => a.name)).toEqual(['LightCutVidz-linux.deb', 'LightCutVidz-mac-arm64.zip', 'SHA256SUMS'])
+    expect(release.assets[0].browser_download_url).toBe('https://github.com/light-cut-vidz/light-cut-vidz/releases/download/v2.1.0/LightCutVidz-linux.deb')
+  })
+
+  it.each([
+    ['a server error', new Error('GitHub responded 500')],
+    ['no network', new Error('getaddrinfo ENOTFOUND api.github.com')],
+  ])('does not hide %s behind the fallback', async (_n, err) => {
+    const _fetchLocation = vi.fn()
+    await expect(fetchLatestRelease({ _fetchJson: vi.fn().mockRejectedValue(err), _fetchLocation })).rejects.toBe(err)
+    expect(_fetchLocation).not.toHaveBeenCalled()
+  })
+
+  it('reports the original error when the fallback finds no tag either', async () => {
+    const _fetchLocation = vi.fn().mockResolvedValue('https://github.com/light-cut-vidz/light-cut-vidz/releases')
+    await expect(fetchLatestRelease({ _fetchJson: rateLimited(), _fetchLocation })).rejects.toThrow('GitHub responded 403')
+  })
+
+  it('reports the fallback failure when the page cannot be reached', async () => {
+    const _fetchLocation = vi.fn().mockRejectedValue(new Error('HTTP 503'))
+    await expect(fetchLatestRelease({ _fetchJson: rateLimited(), _fetchLocation })).rejects.toThrow('HTTP 503')
+  })
+})
+
+describe('updating while the API is rate-limited', () => {
+  it('still offers and downloads the .deb (checksum verified as usual)', async () => {
+    const showMessageBox = vi.fn().mockResolvedValue({ response: 0 })
+    const _downloadFile = vi.fn().mockResolvedValue(undefined)
+    const _execFile = vi.fn()
+    await _upgradeDeb({
+      dialog: { showMessageBox }, app: { getVersion: () => '1.0.0', relaunch: vi.fn(), exit: vi.fn() }, win: {}, t: (k) => k, fromMenu: true,
+      _fetchJson: vi.fn().mockRejectedValue(new Error('GitHub responded 403')),
+      _fetchLocation: vi.fn().mockResolvedValue('https://github.com/light-cut-vidz/light-cut-vidz/releases/tag/v2.0.0'),
+      _downloadFile, _verify: vi.fn().mockResolvedValue(undefined), _execFile,
+    })
+    expect(showMessageBox.mock.calls.some(c => c[1].title === 'update_available_title')).toBe(true)
+    expect(_downloadFile.mock.calls.map(c => c[0])).toEqual([
+      'https://github.com/light-cut-vidz/light-cut-vidz/releases/download/v2.0.0/LightCutVidz-linux.deb',
+      'https://github.com/light-cut-vidz/light-cut-vidz/releases/download/v2.0.0/SHA256SUMS',
+    ])
+    expect(_execFile).toHaveBeenCalled()
+  })
+
+  it('refuses a tag that is not a version, whatever page it came from', async () => {
+    const showMessageBox = vi.fn().mockResolvedValue({ response: 0 })
+    const _downloadFile = vi.fn()
+    await _upgradeDeb({
+      dialog: { showMessageBox }, app: { getVersion: () => '1.0.0', relaunch: vi.fn(), exit: vi.fn() }, win: {}, t: (k) => k, fromMenu: true,
+      _fetchJson: vi.fn().mockRejectedValue(new Error('GitHub responded 403')),
+      _fetchLocation: vi.fn().mockResolvedValue('https://github.com/light-cut-vidz/light-cut-vidz/releases/tag/v1$(touch%20x)'),
+      _downloadFile, _verify: vi.fn(), _execFile: vi.fn(),
+    })
+    expect(_downloadFile).not.toHaveBeenCalled()
+    expect(showMessageBox).toHaveBeenCalledWith({}, expect.objectContaining({ message: 'update_bad_release' }))
+  })
+})
+
 describe('fetchJson', () => {
   it('refuses plain HTTP', async () => {
     await expect(fetchJson('http://api.github.com/x', fakeGet([]))).rejects.toThrow('HTTPS')

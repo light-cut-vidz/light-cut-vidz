@@ -178,6 +178,33 @@ async function _verifyDownload(dir, assetPath, sumsPath, assetName) {
 
 const quietRemove = (target) => { try { fs.rmSync(target, { recursive: true, force: true }) } catch { /* ignore */ } }
 
+// What every release publishes (see the release workflow); used only when the
+// API cannot be asked for the list.
+const RELEASE_ASSETS = ['LightCutVidz-linux.deb', 'LightCutVidz-mac-arm64.zip', CHECKSUMS_NAME]
+
+/**
+ * The latest release as the API's JSON describes it: { tag_name, assets }.
+ * The API allows 60 anonymous requests an hour per IP address, which a shared
+ * connection (office, CGNAT) uses up: it then answers 403/429 and the update
+ * check used to fail with "GitHub responded 403". In that case the tag is read
+ * from the redirect of github.com/.../releases/latest, which has no such limit,
+ * and the asset links are rebuilt from their well-known names.
+ */
+async function fetchLatestRelease({ _fetchJson = fetchJson, _fetchLocation = fetchLocation } = {}) {
+  try {
+    return await _fetchJson(`https://api.github.com/repos/${REPO}/releases/latest`)
+  } catch (err) {
+    if (!/^GitHub responded (403|429)$/.test(errorText(err))) throw err
+    const location = await _fetchLocation(`https://github.com/${REPO}/releases/latest`)
+    const tag = /\/releases\/tag\/([^/?#]+)$/.exec(location)?.[1]
+    if (!tag) throw err
+    return {
+      tag_name: decodeURIComponent(tag),
+      assets: RELEASE_ASSETS.map(name => ({ name, browser_download_url: `https://github.com/${REPO}/releases/download/${tag}/${name}` })),
+    }
+  }
+}
+
 /**
  * Shared front half of the macOS and deb flows: find the newer release, ask the
  * user, download the package and its checksum list into a private directory and
@@ -189,6 +216,7 @@ const quietRemove = (target) => { try { fs.rmSync(target, { recursive: true, for
  */
 async function _prepareUpdate({ dialog, app, win, t, fromMenu, ext, noAssetKey, lang = '', _fetchText = fetchText,
   _fetchJson = fetchJson,
+  _fetchLocation = fetchLocation,
   _downloadFile = downloadFile,
   _verify = _verifyDownload,
 }) {
@@ -197,7 +225,7 @@ async function _prepareUpdate({ dialog, app, win, t, fromMenu, ext, noAssetKey, 
 
   let releaseData
   try {
-    releaseData = await _fetchJson(`https://api.github.com/repos/${REPO}/releases/latest`)
+    releaseData = await fetchLatestRelease({ _fetchJson, _fetchLocation })
   } catch (err) {
     if (fromMenu) error(errorText(err))
     return null
@@ -297,13 +325,14 @@ function currentBundlePath(app) {
  */
 async function _upgradeMac({ dialog, app, win, t, fromMenu, lang = '', _fetchText = fetchText,
   _fetchJson = fetchJson,
+  _fetchLocation = fetchLocation,
   _downloadFile = downloadFile,
   _verify = _verifyDownload,
   _spawn = _defaultSpawn,
   _appPath = currentBundlePath(app),
 }) {
   const prepared = await _prepareUpdate({
-    dialog, app, win, t, fromMenu, ext: '.zip', noAssetKey: 'update_no_mac_archive', lang, _fetchText, _fetchJson, _downloadFile, _verify,
+    dialog, app, win, t, fromMenu, ext: '.zip', noAssetKey: 'update_no_mac_archive', lang, _fetchText, _fetchJson, _fetchLocation, _downloadFile, _verify,
   })
   if (!prepared) return
   const { dir, assetPath } = prepared
@@ -334,9 +363,9 @@ async function _upgradeMac({ dialog, app, win, t, fromMenu, lang = '', _fetchTex
   app.exit(0)
 }
 
-async function _upgradeDeb({ dialog, app, win, t, fromMenu, lang = '', _fetchText = fetchText, _execFile = execFile, _fetchJson = fetchJson, _downloadFile = downloadFile, _verify = _verifyDownload }) {
+async function _upgradeDeb({ dialog, app, win, t, fromMenu, lang = '', _fetchText = fetchText, _execFile = execFile, _fetchJson = fetchJson, _fetchLocation = fetchLocation, _downloadFile = downloadFile, _verify = _verifyDownload }) {
   const prepared = await _prepareUpdate({
-    dialog, app, win, t, fromMenu, ext: '.deb', noAssetKey: 'update_no_deb', lang, _fetchText, _fetchJson, _downloadFile, _verify,
+    dialog, app, win, t, fromMenu, ext: '.deb', noAssetKey: 'update_no_deb', lang, _fetchText, _fetchJson, _fetchLocation, _downloadFile, _verify,
   })
   if (!prepared) return
   const { dir, assetPath } = prepared
@@ -366,10 +395,10 @@ async function _upgradeDeb({ dialog, app, win, t, fromMenu, lang = '', _fetchTex
  * Fedora/Arch repackage…) cannot be updated in place: tell the user a newer
  * version exists and open its download page.
  */
-async function _upgradeManual({ dialog, app, win, t, fromMenu, openExternal, lang = '', _fetchText = fetchText, _fetchJson = fetchJson }) {
+async function _upgradeManual({ dialog, app, win, t, fromMenu, openExternal, lang = '', _fetchText = fetchText, _fetchJson = fetchJson, _fetchLocation = fetchLocation }) {
   let release
   try {
-    release = await _fetchJson(`https://api.github.com/repos/${REPO}/releases/latest`)
+    release = await fetchLatestRelease({ _fetchJson, _fetchLocation })
   } catch (err) {
     if (fromMenu) dialog.showMessageBox(win, { type: 'error', title: t('update_failed_title'), message: errorText(err) })
     return
@@ -418,6 +447,26 @@ function fetchJson(url, _get = https.get) {
           try { resolve(JSON.parse(data)) }
           catch (e) { reject(e) }
         })
+      }
+    ).on('error', reject)
+  })
+}
+
+/** Where an https URL redirects to, without following it. */
+function fetchLocation(url, _get = https.get) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:') return reject(new Error('Refusing non-HTTPS request'))
+    _get(
+      { hostname: parsed.hostname, path: parsed.pathname + parsed.search, headers: { 'User-Agent': 'LightCutVidz-updater' } },
+      (res) => {
+        res.resume()
+        const location = res.headers && res.headers.location
+        if (!REDIRECT_CODES.includes(res.statusCode ?? 0) || !location) return reject(new Error(`HTTP ${res.statusCode}`))
+        const target = new URL(location, url)
+        // Only ever hop within github.com: the tag read from here ends up in download URLs.
+        if (target.protocol !== 'https:' || target.hostname !== parsed.hostname) return reject(new Error('Unexpected redirect'))
+        resolve(target.toString())
       }
     ).on('error', reject)
   })
@@ -488,4 +537,4 @@ function downloadFile(url, dest, _get = https.get, _redirects = 0) {
   })
 }
 
-module.exports = { loadReleaseNotes, fetchText, setupAutoUpdater, checkForUpdates, _upgradeMac, _upgradeDeb, _upgradeManual, fetchJson, downloadFile, isNewer, showUpdateReadyDialog, verifyChecksum }
+module.exports = { loadReleaseNotes, fetchLatestRelease, fetchLocation, fetchText, setupAutoUpdater, checkForUpdates, _upgradeMac, _upgradeDeb, _upgradeManual, fetchJson, downloadFile, isNewer, showUpdateReadyDialog, verifyChecksum }

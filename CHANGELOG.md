@@ -5,6 +5,11 @@ The French version is in [CHANGELOG.fr.md](CHANGELOG.fr.md) — keep both in ste
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.7] - 2026-10-22
+
+### Fixed
+- *Check for updates* no longer fails with "GitHub responded 403". GitHub limits how often an app can ask it for the latest version, and a shared connection can use that allowance up; the app now finds the new version another way when that happens.
+
 ## [1.0.6] - 2026-10-22
 
 ### Fixed

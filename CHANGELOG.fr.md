@@ -5,6 +5,11 @@ La version anglaise est dans [CHANGELOG.md](CHANGELOG.md) — gardez les deux sy
 
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [1.0.7] - 2026-10-22
+
+### Corrigé
+- *Vérifier les mises à jour* n'échoue plus avec « GitHub responded 403 ». GitHub limite le nombre de fois qu'une application peut lui demander la dernière version, et une connexion partagée peut épuiser ce quota ; l'application trouve maintenant la nouvelle version autrement quand cela arrive.
+
 ## [1.0.6] - 2026-10-22
 
 ### Corrigé
