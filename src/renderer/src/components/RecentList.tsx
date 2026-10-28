@@ -10,7 +10,7 @@ interface Props {
   onClear: () => void
 }
 
-/** Projects and videos opened lately, on the home screen. */
+/** Videos opened lately, on the home screen. */
 export default function RecentList({ items, onOpen, onRemove, onClear }: Props) {
   const { t } = useT()
   if (items.length === 0) return null
@@ -24,7 +24,7 @@ export default function RecentList({ items, onOpen, onRemove, onClear }: Props) 
         {items.slice(0, 5).map(item => (
           <li key={item.path} className="recent-item">
             <button className="recent-open" onClick={() => onOpen(item.path)} title={item.path}>
-              <span className={`recent-kind ${item.kind}`}>{item.kind === 'project' ? t.recent_project : item.name.split('.').pop()?.toUpperCase()}</span>
+              <span className="recent-kind">{item.name.split('.').pop()?.toUpperCase()}</span>
               <span className="recent-name">{item.name}</span>
               <span className="recent-dir">{item.dir}</span>
             </button>

@@ -16,6 +16,16 @@ describe('Toast', () => {
     expect(container.querySelector('.toast-in')).toBeTruthy()
   })
 
+  it('colors a success, error or warning toast, and leaves an info one plain', () => {
+    for (const type of ['success', 'error', 'warning']) {
+      const { container, unmount } = render(<Toast message="x" type={type} onDone={vi.fn()} />)
+      expect(container.querySelector(`.toast-${type}`)).toBeTruthy()
+      unmount()
+    }
+    const { container } = render(<Toast message="x" type="info" onDone={vi.fn()} />)
+    expect(container.querySelector('.toast-success, .toast-error, .toast-warning')).toBeNull()
+  })
+
   it('transitions to toast-out after duration', () => {
     const { container } = render(<Toast message="x" duration={1000} onDone={vi.fn()} />)
     act(() => { vi.advanceTimersByTime(1000) })

@@ -26,13 +26,13 @@ Trim, crop, filter and subtitle your videos, then export them — locally, with 
 - **Social formats** — export as 9:16 (TikTok, Reels, Shorts), 4:5 (Instagram), 1:1 or 16:9, with a blurred background or cropped to fit; one-click presets
 - **Stabilization** — light, normal or strong, applied at export (two-pass `vidstab`)
 - **Mute** — toggle audio on/off
-- **Projects** — save your edits to a `.lcvproj` file (`Ctrl/Cmd+S`) and reopen them later (`Ctrl/Cmd+Shift+O`); closing the window with unsaved edits asks first
+- **No project files** — open a video, edit it, export it; closing the window with unsaved edits asks first, and nothing is kept
 - **What's new** — the changelog is shown in the app (Help → What's new, or click the version number), automatically after an update, and in the update dialog itself
 - **Undo / Redo** — full history for every edit via `Ctrl/Cmd+Z` / `Ctrl+Y`; a whole drag or slider scrub counts as one step
 - **Export** — MP4, MOV, WebM, AVI, GIF in a single encoding pass, with a progress bar and a **Stop** button; choose the **quality** and the **resolution**, optimise **GIFs** (width, frame rate), use **hardware acceleration** when available, or **queue** several exports
 - **Full screen** — `F11` / `Ctrl+Cmd+F`, exit with `Escape`
 - **Bilingual** — English and French (follows your system language on first launch), switchable from the Language menu
-- **Recent files** — your latest projects and videos on the home screen and in *File → Open recent*
+- **Recent files** — your latest videos on the home screen and in *File → Open recent*
 - **Light & dark themes** — *View → Theme* (follow the system, light or dark)
 - **Open with…** — pass a video on the command line or use *Open with LightCutVidz* from your file manager
 
@@ -179,11 +179,7 @@ Inside a text field, `Ctrl/Cmd+Z` undoes the typing, not the timeline.
 
 A continuous gesture — dragging a cut, resizing the crop box, scrubbing a slider — is recorded as a single history entry, so one `Ctrl+Z` undoes the whole movement.
 
-### 9. Projects
-
-**File → Save project…** (`Ctrl/Cmd+S`) writes the video's path and every edit (cuts, crop, geometry, filter, subtitles, speed, mute) to a `.lcvproj` file; **Open project…** restores them. The video itself is not copied: if it has moved, you are told. A project file is validated on opening, so a damaged or foreign file cannot do anything but show an error.
-
-### 10. Export
+### 9. Export
 
 Click **Export** in the toolbar.
 
@@ -357,7 +353,6 @@ light-cut-vidz/
 │   │   │   ├── preview.js             # can this file be played without transcoding?
 │   │   │   ├── decodeText.js          # SRT decoding (UTF-8/16, Windows-1252)
 │   │   │   ├── ffmpeg.js              # spawn wrapper: progress, cancellation, stream info from `ffmpeg -i`
-│   │   │   ├── project.js             # .lcvproj validation
 │   │   │   ├── videoFilters.js        # crop / rotate / perspective / speed filter chain
 │   │   │   ├── subtitles.js           # cue → .ass generation, cut-timeline remapping
 │   │   │   ├── updater.js             # per-install-method update flows (Homebrew, deb, AppImage)

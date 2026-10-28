@@ -29,8 +29,8 @@ describe('translate', () => {
   })
 
   it('invokes function-valued messages with args', () => {
-    expect(translate('en', 'about_message', '1.2.3')).toBe('Version 1.2.3')
-    expect(translate('fr', 'about_message', '1.2.3')).toBe('Version 1.2.3')
+    expect(translate('en', 'no_update_msg_v', '1.2.3')).toBe('You are already on the latest version (1.2.3).')
+    expect(translate('fr', 'no_update_msg_v', '1.2.3')).toContain('1.2.3')
   })
 
   it('invokes function-valued message with multiple args', () => {
@@ -56,12 +56,12 @@ describe('parameterised messages', () => {
     expect(out).toContain('1.4.0')
   })
 
-  it.each(['en', 'fr'])('%s formats the version into about_message', (lang) => {
-    expect(translate(lang, 'about_message', '1.4.0')).toContain('1.4.0')
+  it.each(['en', 'fr'])('%s formats the version into no_update_msg_v', (lang) => {
+    expect(translate(lang, 'no_update_msg_v', '1.4.0')).toContain('1.4.0')
   })
 
   it('falls back to the english function for an unknown language', () => {
-    expect(translate('de', 'about_message', '9.9.9')).toBe('Version 9.9.9')
+    expect(translate('de', 'no_update_msg_v', '9.9.9')).toBe('You are already on the latest version (9.9.9).')
   })
 
   it('returns undefined for an unknown key rather than throwing', () => {

@@ -5,6 +5,21 @@ La version anglaise est dans [CHANGELOG.md](CHANGELOG.md) — gardez les deux sy
 
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [Unreleased]
+
+## [1.1.0] - 2026-10-28
+
+### Modifié
+- La barre du haut affiche le nom du fichier ouvert, avec sa taille et sa durée, à la place du nom de l'application.
+- Les questions et les messages de la mise à jour, ainsi que la fenêtre À propos, s'affichent dans la fenêtre au lieu de boîtes natives ; l'avis « pas de mise à jour » est vert et les erreurs sont rouges.
+- Le numéro de version n'est plus affiché en bas de la barre latérale ; il est dans la fenêtre À propos.
+
+### Corrigé
+- Effacer les fichiers récents depuis le menu Fichier vide maintenant aussi la liste de l'écran d'accueil.
+
+### Supprimé
+- Projets : *Enregistrer le projet…* et *Ouvrir un projet…* (fichiers `.lcvproj`) n'existent plus. On ouvre une vidéo, on la modifie et on l'exporte ; rien d'autre n'est enregistré, et un projet de votre liste de récents en disparaît simplement.
+
 ## [1.0.7] - 2026-10-22
 
 ### Corrigé

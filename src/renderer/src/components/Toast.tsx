@@ -4,10 +4,11 @@ import './Toast.css'
 interface Props {
   message: string
   duration?: number
+  type?: string
   onDone: () => void
 }
 
-export default function Toast({ message, duration = 3500, onDone }: Props) {
+export default function Toast({ message, duration = 3500, type, onDone }: Props) {
   const [visible, setVisible] = useState(true)
 
   useEffect(() => {
@@ -17,7 +18,7 @@ export default function Toast({ message, duration = 3500, onDone }: Props) {
   }, [duration, onDone])
 
   return (
-    <div role="status" className={`toast ${visible ? 'toast-in' : 'toast-out'}`}>
+    <div role="status" className={`toast ${visible ? 'toast-in' : 'toast-out'}${type === 'success' || type === 'error' || type === 'warning' ? ` toast-${type}` : ''}`}>
       {message}
     </div>
   )

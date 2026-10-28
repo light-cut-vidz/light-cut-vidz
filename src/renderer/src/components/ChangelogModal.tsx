@@ -85,9 +85,9 @@ export default function ChangelogModal() {
 
   return (
     <div className="cl-backdrop" onClick={() => setOpen(false)}>
-      <div className="cl-modal" role="dialog" aria-modal="true" aria-label={t.changelog_title} onClick={e => e.stopPropagation()}>
+      <div className="cl-card changelog-card" role="dialog" aria-modal="true" aria-label={t.changelog_title} onClick={e => e.stopPropagation()}>
         <div className="cl-header">
-          <h2>{t.changelog_title}</h2>
+          <div className="cl-title">{t.changelog_title}</div>
           <button className="cl-close" onClick={() => setOpen(false)} aria-label={t.changelog_close}>×</button>
         </div>
         <div className="cl-body">
@@ -95,7 +95,7 @@ export default function ChangelogModal() {
           {entries !== null && entries.length === 0 && <p className="cl-empty">{t.changelog_empty}</p>}
           {entries?.map(e => (
             <section key={e.version} className="cl-entry">
-              <h3>{t.changelog_version(e.version)}{e.date && <span className="cl-date">{e.date}</span>}</h3>
+              <h3>{`v${e.version}`}{e.date && <small className="cl-date">{e.date}</small>}</h3>
               <Body text={e.body} />
             </section>
           ))}

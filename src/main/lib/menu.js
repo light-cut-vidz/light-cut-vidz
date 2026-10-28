@@ -2,7 +2,7 @@ const { Menu, BrowserWindow, dialog } = require('electron')
 
 const { videoExtensions: VIDEO_EXTENSIONS } = require('../../shared/constants.json')
 
-function buildMenuTemplate({ t, currentLang, currentTheme = 'system', recent = [], onOpenRecent, onClearRecent, onSwitchTheme, onOpenVideo, onSaveProject, onOpenProject, onUndo, onRedo, onFullscreenEntered, onAbout, onCheckUpdates, onShowChangelog, onSwitchLanguage }) {
+function buildMenuTemplate({ t, currentLang, currentTheme = 'system', recent = [], onOpenRecent, onClearRecent, onSwitchTheme, onOpenVideo, onUndo, onRedo, onFullscreenEntered, onAbout, onCheckUpdates, onShowChangelog, onSwitchLanguage }) {
   const isMac = process.platform === 'darwin'
 
   return [
@@ -36,14 +36,12 @@ function buildMenuTemplate({ t, currentLang, currentTheme = 'system', recent = [
             if (!canceled && filePaths[0]) onOpenVideo(win, filePaths[0])
           },
         },
-        { type: 'separator' },
-        { label: t('menu_save_project'), accelerator: 'CmdOrCtrl+S', click: () => onSaveProject && onSaveProject(BrowserWindow.getFocusedWindow()) },
         {
           label: t('menu_open_recent'),
           enabled: recent.length > 0,
           submenu: [
             ...recent.map(item => ({
-              label: `${item.kind === 'project' ? '◆ ' : ''}${require('path').basename(item.path)}`,
+              label: require('path').basename(item.path),
               toolTip: item.path,
               click: () => onOpenRecent && onOpenRecent(item.path),
             })),
@@ -51,9 +49,8 @@ function buildMenuTemplate({ t, currentLang, currentTheme = 'system', recent = [
             { label: t('menu_clear_recent'), click: () => onClearRecent && onClearRecent() },
           ],
         },
-        { label: t('menu_open_project'), accelerator: 'CmdOrCtrl+Shift+O', click: () => onOpenProject && onOpenProject(BrowserWindow.getFocusedWindow()) },
         { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit' },
+        isMac ? { role: 'close' } : { role: 'quit', label: t('menu_quit') },
       ],
     },
     {

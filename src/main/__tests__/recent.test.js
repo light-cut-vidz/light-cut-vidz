@@ -9,9 +9,8 @@ const { sanitizeSettings, THEMES, DEFAULTS } = requireSrc('main/lib/settings.js'
 const { readJson, writeJson } = requireSrc('main/lib/store.js')
 
 describe('kindOf', () => {
-  it('tells projects from videos, whatever the case', () => {
-    expect(kindOf('/a/b.lcvproj')).toBe('project')
-    expect(kindOf('/a/b.LCVPROJ')).toBe('project')
+  it('recognises videos whatever the case, and no longer projects', () => {
+    expect(kindOf('/a/b.lcvproj')).toBeNull()
     expect(kindOf('/a/b.MP4')).toBe('video')
     expect(kindOf('/a/b.mkv')).toBe('video')
   })
@@ -56,7 +55,7 @@ describe('removeRecent', () => {
 describe('sanitizeRecent (a file from disk is not trusted)', () => {
   it('keeps valid entries', () => {
     expect(sanitizeRecent({ items: [{ path: '/a.mp4', openedAt: 5 }, { path: '/p.lcvproj', openedAt: 6 }] }))
-      .toEqual([{ kind: 'video', path: '/a.mp4', openedAt: 5 }, { kind: 'project', path: '/p.lcvproj', openedAt: 6 }])
+      .toEqual([{ kind: 'video', path: '/a.mp4', openedAt: 5 }])
   })
   it.each([null, undefined, 3, 'x', [], {}, { items: 'no' }, { items: null }])('copes with %j', (raw) => {
     expect(sanitizeRecent(raw)).toEqual([])
@@ -66,7 +65,7 @@ describe('sanitizeRecent (a file from disk is not trusted)', () => {
     expect(out.map(i => i.path)).toEqual(['/a.mp4'])
   })
   it('never trusts the kind written in the file', () => {
-    expect(sanitizeRecent({ items: [{ kind: 'project', path: '/a.mp4' }] })[0].kind).toBe('video')
+    expect(sanitizeRecent({ items: [{ kind: 'other', path: '/a.mp4' }] })[0].kind).toBe('video')
   })
   it('bounds the length', () => {
     expect(sanitizeRecent({ items: Array.from({ length: 100 }, (_, i) => ({ path: `/v${i}.mp4` })) })).toHaveLength(MAX_RECENT)

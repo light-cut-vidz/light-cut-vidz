@@ -83,6 +83,7 @@ describe('event subscriptions', () => {
     ['onMenuOpenVideo', 'menu:openVideo'],
     ['onMenuUndo', 'menu:undo'],
     ['onMenuRedo', 'menu:redo'],
+    ['onRecentChanged', 'recent:changed'],
     ['onFullscreenEntered', 'menu:fullscreen-entered'],
     ['onMenuSetLanguage', 'menu:setLanguage'],
   ])('%s subscribes to %s and returns an unsubscribe function', (method, channel) => {
@@ -115,24 +116,10 @@ describe('event subscriptions', () => {
   })
 })
 
-describe('project and unsaved-edit channels', () => {
-  it('saveProject invokes project:save', () => {
-    api.saveProject({ videoPath: '/a.mp4', state: {} })
-    expect(invoke).toHaveBeenCalledWith('project:save', { videoPath: '/a.mp4', state: {} })
-  })
-
+describe('unsaved-edit channel', () => {
   it('setDirty sends a boolean on app:setDirty', () => {
     api.setDirty(1)
     expect(send).toHaveBeenCalledWith('app:setDirty', true)
-  })
-
-  it('subscribes to the project menu events and unsubscribes precisely', () => {
-    for (const [method, channel] of [['onMenuSaveProject', 'menu:saveProject'], ['onMenuLoadProject', 'menu:loadProject']]) {
-      const off = api[method](vi.fn())
-      const [, handler] = on.mock.calls.find(([ch]) => ch === channel)
-      off()
-      expect(removeListener).toHaveBeenCalledWith(channel, handler)
-    }
   })
 })
 
@@ -140,6 +127,15 @@ describe('changelog channels', () => {
   it('getChangelog invokes changelog:get with the language', () => {
     api.getChangelog('fr')
     expect(invoke).toHaveBeenCalledWith('changelog:get', 'fr')
+  })
+  it('onMenuAbout hands the version to the callback and unsubscribes precisely', () => {
+    const cb = vi.fn()
+    const off = api.onMenuAbout(cb)
+    const [, handler] = on.mock.calls.find(([ch]) => ch === 'menu:about')
+    handler({}, '1.2.3')
+    expect(cb).toHaveBeenCalledWith('1.2.3')
+    off()
+    expect(removeListener).toHaveBeenCalledWith('menu:about', handler)
   })
   it('onMenuShowChangelog subscribes and unsubscribes precisely', () => {
     const off = api.onMenuShowChangelog(vi.fn())

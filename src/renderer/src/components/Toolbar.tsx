@@ -2,7 +2,6 @@ import React, { memo } from 'react'
 import type { EditorState } from '../App'
 import type { StabilizeLevel } from '../hooks/useHistory'
 import { useT } from '../i18n'
-import { SHOW_CHANGELOG_EVENT } from './ChangelogModal'
 import { getFilterById } from '../utils/filters'
 import { CubeIcon, StarIcon, SoundOnIcon, SoundOffIcon, CropIcon, SubtitleIcon } from './icons'
 import './Toolbar.css'
@@ -189,8 +188,6 @@ function Toolbar({ state, showCrop, showFilters, showGeometry, showSubtitles, on
         )}
       </div>
 
-      <div className="toolbar-spacer" />
-      <button className="toolbar-version" onClick={() => window.dispatchEvent(new Event(SHOW_CHANGELOG_EVENT))} title={t.changelog_title}>v{__APP_VERSION__}</button>
     </div>
   )
 }

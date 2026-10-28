@@ -48,15 +48,17 @@ export default function DropZone({ onDrop, onOpen, onReject, recent = [], onOpen
       onDrop={handleDrop}
     >
       <div className="dropzone-inner">
-        <div className="dropzone-icon">
-          <VideoIcon />
+        <div className="dropzone-frame">
+          <div className="dropzone-icon">
+            <VideoIcon />
+          </div>
+          <h2 className="dropzone-title">LightCutVidz</h2>
+          <p className="dropzone-subtitle">{t.dropzone_subtitle}</p>
+          <p className="dropzone-or">{t.dropzone_or}</p>
+          <button className="dropzone-btn" onClick={onOpen}>
+            {t.dropzone_browse}
+          </button>
         </div>
-        <h2 className="dropzone-title">LightCutVidz</h2>
-        <p className="dropzone-subtitle">{t.dropzone_subtitle}</p>
-        <p className="dropzone-or">{t.dropzone_or}</p>
-        <button className="dropzone-btn" onClick={onOpen}>
-          {t.dropzone_browse}
-        </button>
         <RecentList items={recent} onOpen={p => onOpenRecent?.(p)} onRemove={p => onRemoveRecent?.(p)} onClear={() => onClearRecent?.()} />
         <p className="dropzone-formats">MP4 · MOV · AVI · MKV · WebM · FLV · M4V</p>
       </div>

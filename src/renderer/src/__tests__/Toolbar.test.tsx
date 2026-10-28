@@ -232,14 +232,11 @@ describe('Toolbar — labels', () => {
   })
 })
 
-describe('Toolbar — version button', () => {
-  it('opens the What\'s new window when the version is clicked', () => {
-    const handler = vi.fn()
-    window.addEventListener('lcv:show-changelog', handler)
+describe('Toolbar — version', () => {
+  it('does not show the version: it is in the About box', () => {
     const { container } = render(<LangProvider><Toolbar {...makeProps()} /></LangProvider>)
-    fireEvent.click(container.querySelector('.toolbar-version') as HTMLElement)
-    window.removeEventListener('lcv:show-changelog', handler)
-    expect(handler).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('.toolbar-version')).toBeNull()
+    expect(container.textContent).not.toMatch(/v\d+\.\d+/)
   })
 })
 

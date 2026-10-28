@@ -18,7 +18,6 @@ beforeEach(() => {
     openVideo: vi.fn().mockResolvedValue(null),
     saveVideo: vi.fn().mockResolvedValue(null),
     cancelFfmpeg: vi.fn().mockResolvedValue(undefined),
-    saveProject: vi.fn().mockResolvedValue(null),
     getChangelog: vi.fn().mockResolvedValue([]),
     getCapabilities: vi.fn().mockResolvedValue({ hardware: [], stabilization: true }),
     queueAdd: vi.fn().mockResolvedValue({ id: 1 }),
@@ -33,10 +32,12 @@ beforeEach(() => {
     clearRecent: vi.fn().mockResolvedValue(undefined),
     getSettings: vi.fn().mockResolvedValue({ theme: 'system' }),
     setTheme: vi.fn().mockResolvedValue(undefined),
+    onUpdatePrompt: vi.fn(() => () => {}),
+    onUpdateNotice: vi.fn(() => () => {}),
+    answerUpdate: vi.fn(),
+    onMenuAbout: vi.fn(() => () => {}),
     onMenuShowChangelog: vi.fn(() => () => {}),
     setDirty: vi.fn(),
-    onMenuSaveProject: vi.fn(() => () => {}),
-    onMenuLoadProject: vi.fn(() => () => {}),
     previewVideo: vi.fn().mockResolvedValue('/tmp/preview.webm'),
     openSubtitleFile: vi.fn().mockResolvedValue(null),
     onPreviewProgress: vi.fn(() => () => {}),
@@ -45,6 +46,7 @@ beforeEach(() => {
     onMenuOpenVideo: vi.fn(() => () => {}),
     onMenuUndo: vi.fn(() => () => {}),
     onMenuRedo: vi.fn(() => () => {}),
+    onRecentChanged: vi.fn(() => () => {}),
     onFullscreenEntered: vi.fn(() => () => {}),
     setUndoRedoState: vi.fn(),
     setLanguage: vi.fn(),
@@ -140,6 +142,34 @@ describe('App', () => {
       menuHandler!('/tmp/menu-video.mp4')
     })
     await waitFor(() => expect(container.querySelector('.app-layout')).toBeTruthy())
+  })
+
+  it('reloads the recent list when the main process says it changed', async () => {
+    let changed: (() => void) | null = null
+    const listRecent = vi.fn().mockResolvedValue([])
+    window.electronAPI = {
+      ...window.electronAPI,
+      listRecent,
+      onRecentChanged: vi.fn((cb: () => void) => { changed = cb; return () => {} }),
+    }
+    render(<App />)
+    await waitFor(() => expect(listRecent).toHaveBeenCalled())
+    const before = listRecent.mock.calls.length
+    await act(async () => { changed!() })
+    expect(listRecent.mock.calls.length).toBeGreaterThan(before)
+  })
+
+  it('names the open file in the top bar', async () => {
+    let menuHandler: ((path: string) => void) | null = null
+    window.electronAPI = {
+      ...window.electronAPI,
+      onMenuOpenVideo: vi.fn((cb: (p: string) => void) => { menuHandler = cb; return () => {} }),
+      previewVideo: vi.fn().mockResolvedValue('/tmp/preview.webm'),
+    }
+    const { container } = r()
+    await act(async () => { menuHandler!('/tmp/holidays/beach day.mp4') })
+    await waitFor(() => expect(container.querySelector('.file-badge-name')?.textContent).toBe('beach day.mp4'))
+    expect(container.querySelector('.file-badge-meta')?.textContent).toBe('0:00')
   })
 
   it('triggers a Toast when fullscreen entered event fires', async () => {
@@ -1040,68 +1070,15 @@ describe('App — playback fixes', () => {
   })
 })
 
-// ─── Projects, unsaved edits, text-field undo, keyboard transport ───────────
+// ─── Unsaved edits, text-field undo, keyboard transport ─────────────────────
 
-describe('App — projects and unsaved edits', () => {
-  const menuHandler = (name: 'onMenuSaveProject' | 'onMenuLoadProject' | 'onMenuUndo') => {
-    const calls = vi.mocked(window.electronAPI[name]).mock.calls as unknown as Array<[(...a: unknown[]) => void]>
-    return calls[calls.length - 1][0]
-  }
-
+describe('App — unsaved edits', () => {
   it('reports whether there are edits the main process should protect', async () => {
     const { container } = await loadedApp()
     expect(window.electronAPI.setDirty).toHaveBeenLastCalledWith(false)
     const presets = container.querySelectorAll('.preset-btn')
     fireEvent.click(presets[presets.length - 1])
     await waitFor(() => expect(window.electronAPI.setDirty).toHaveBeenLastCalledWith(true))
-  })
-
-  it('saves the video path and every edit when the menu asks', async () => {
-    const saveProject = vi.fn().mockResolvedValue('/p/x.lcvproj')
-    window.electronAPI = { ...window.electronAPI, saveProject }
-    const { container } = await loadedApp()
-    const presets = container.querySelectorAll('.preset-btn')
-    fireEvent.click(presets[presets.length - 1])
-    await act(async () => { menuHandler('onMenuSaveProject')() })
-    expect(saveProject).toHaveBeenCalledWith(expect.objectContaining({ videoPath: '/tmp/in.mp4', state: expect.objectContaining({ speed: 4 }) }))
-    await waitFor(() => expect(container.querySelector('.toast')).toBeTruthy())
-  })
-
-  it('does not save anything without a video', async () => {
-    const saveProject = vi.fn()
-    window.electronAPI = { ...window.electronAPI, saveProject }
-    r()
-    await act(async () => { menuHandler('onMenuSaveProject')() })
-    expect(saveProject).not.toHaveBeenCalled()
-  })
-
-  it('shows a message when saving fails', async () => {
-    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
-    window.electronAPI = { ...window.electronAPI, saveProject: vi.fn().mockRejectedValue(new Error('EACCES')) }
-    const { container } = await loadedApp()
-    await act(async () => { menuHandler('onMenuSaveProject')() })
-    await waitFor(() => expect(container.querySelector('.toast')).toBeTruthy())
-    log.mockRestore()
-  })
-
-  it('opens a project: loads its video and restores its edits as the starting point', async () => {
-    const { container } = r()
-    await act(async () => {
-      menuHandler('onMenuLoadProject')({ videoPath: '/tmp/proj.mp4', state: { speed: 2, muted: true, cutSegments: [{ id: 'a', start: 1, end: 2 }] } })
-    })
-    await waitFor(() => expect(container.querySelector('.app-layout')).toBeTruthy())
-    expect(window.electronAPI.previewVideo).toHaveBeenCalledWith('/tmp/proj.mp4')
-    expect(container.querySelector('.speed-display')?.textContent).toBe('2x')
-    expect(container.querySelectorAll('.tl-cut')).toHaveLength(1)
-    // The restored state is the baseline, not an undoable edit.
-    expect(screen.getByTitle(/undo|annuler/i)).toBeDisabled()
-  })
-
-  it('sanitises a project file with bad values instead of trusting it', async () => {
-    const { container } = r()
-    await act(async () => { menuHandler('onMenuLoadProject')({ videoPath: '/tmp/p.mp4', state: { speed: 9999, rotation: 'x' } }) })
-    await waitFor(() => expect(container.querySelector('.app-layout')).toBeTruthy())
-    expect(container.querySelector('.speed-display')?.textContent).toBe('1x')
   })
 })
 
@@ -1249,16 +1226,6 @@ describe('App — stabilisation, queue and recent files', () => {
     expect(vi.mocked(window.electronAPI.exportVideo).mock.calls[0][0]).toMatchObject({ stabilize: 'normal' })
   })
 
-  it('saves the stabilisation level in the project', async () => {
-    const saveProject = vi.fn().mockResolvedValue('/p/x.lcvproj')
-    window.electronAPI = { ...window.electronAPI, saveProject }
-    const { container } = await loadedApp()
-    fireEvent.click(container.querySelectorAll('.stab-btn')[3])
-    const calls = vi.mocked(window.electronAPI.onMenuSaveProject).mock.calls as unknown as Array<[() => void]>
-    await act(async () => { calls[calls.length - 1][0]() })
-    expect(saveProject).toHaveBeenCalledWith(expect.objectContaining({ state: expect.objectContaining({ stabilize: 'strong' }) }))
-  })
-
   it('tells the user when an export was added to the queue', async () => {
     const { container } = await withDuration()
     fireEvent.click(screen.getByRole('button', { name: /^export(er)?$/i }))
@@ -1272,7 +1239,7 @@ describe('App — stabilisation, queue and recent files', () => {
   describe('recent files on the home screen', () => {
     const entries = [
       { kind: 'video' as const, path: '/v/a.mp4', name: 'a.mp4', dir: '/v', openedAt: 2 },
-      { kind: 'project' as const, path: '/v/p.lcvproj', name: 'p.lcvproj', dir: '/v', openedAt: 1 },
+      { kind: 'video' as const, path: '/v/b.mp4', name: 'b.mp4', dir: '/v', openedAt: 1 },
     ]
 
     it('lists them', async () => {

@@ -10,8 +10,23 @@ export interface QueueJob {
   error: string | null
 }
 
+/** A question the updater asks: shown as a banner, answered with a button's index. */
+export interface UpdatePrompt {
+  id: number
+  title?: string
+  message?: string
+  detail?: string
+  buttons: string[]
+}
+
+/** A message from the updater, shown as a toast. */
+export interface UpdateNotice {
+  type: string
+  message: string
+}
+
 export interface RecentEntry {
-  kind: 'project' | 'video'
+  kind: 'video'
   path: string
   name: string
   dir: string
@@ -41,11 +56,12 @@ declare global {
       getSettings: () => Promise<{ theme: 'system' | 'light' | 'dark' }>
       setTheme: (theme: 'system' | 'light' | 'dark') => Promise<void>
       getChangelog: (lang: string) => Promise<{ version: string; date: string; body: string }[]>
+      onUpdatePrompt: (callback: (prompt: UpdatePrompt) => void) => () => void
+      onUpdateNotice: (callback: (notice: UpdateNotice) => void) => () => void
+      answerUpdate: (id: number, response: number) => void
+      onMenuAbout: (callback: (version: string) => void) => () => void
       onMenuShowChangelog: (callback: () => void) => () => void
-      saveProject: (project: { videoPath: string; state: unknown }) => Promise<string | null>
       setDirty: (dirty: boolean) => void
-      onMenuSaveProject: (callback: () => void) => () => void
-      onMenuLoadProject: (callback: (project: { videoPath: string; state: unknown }) => void) => () => void
       previewVideo: (filePath: string) => Promise<string>
       openSubtitleFile: () => Promise<{ filePath: string; content: string } | null>
       onPreviewProgress: (callback: (progress: number) => void) => () => void
@@ -87,6 +103,7 @@ declare global {
       }) => Promise<{ success: boolean; outputPath: string }>
       onProgress: (callback: (progress: number) => void) => () => void
       onMenuOpenVideo: (callback: (filePath: string) => void) => () => void
+      onRecentChanged: (callback: () => void) => () => void
       onMenuUndo: (callback: () => void) => () => void
       onMenuRedo: (callback: () => void) => () => void
       onFullscreenEntered: (callback: () => void) => () => void

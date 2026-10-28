@@ -1,20 +1,18 @@
-// The "recent" list: projects and videos the user opened lately. Pure helpers;
+// The "recent" list: the videos the user opened lately. Pure helpers;
 // storage is in store.js and the wiring in index.js.
 
 const path = require('path')
 const { videoExtensions } = require('../../shared/constants.json')
-const { PROJECT_EXTENSION } = require('./project')
 
 const MAX_RECENT = 10
 
-/** @typedef {{ kind: 'project'|'video', path: string, openedAt: number }} RecentItem */
+/** @typedef {{ kind: 'video', path: string, openedAt: number }} RecentItem */
 
 /** What kind of file is this, or null if the app would not open it.
- * @returns {'project'|'video'|null} */
+ * @returns {'video'|null} */
 function kindOf(filePath) {
   if (typeof filePath !== 'string' || !path.isAbsolute(filePath)) return null
   const ext = path.extname(filePath).slice(1).toLowerCase()
-  if (ext === PROJECT_EXTENSION) return 'project'
   return videoExtensions.includes(ext) ? 'video' : null
 }
 

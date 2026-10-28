@@ -12,11 +12,10 @@ import SubtitleOverlay from './components/SubtitleOverlay'
 import FilterDefs from './components/FilterDefs'
 import VignetteOverlay from './components/VignetteOverlay'
 import { useEditorHistory } from './hooks/useHistory'
-import { getKeptSegments, getVirtualDuration, realToVirtual, virtualToReal } from './utils/time'
+import { formatTime, getKeptSegments, getVirtualDuration, realToVirtual, virtualToReal } from './utils/time'
 import { isVideoFileName } from './utils/video'
-import { toProject, fromProjectState } from './utils/project'
 import type { RecentEntry } from './electron'
-import type { EditableState, StabilizeLevel } from './hooks/useHistory'
+import type { StabilizeLevel } from './hooks/useHistory'
 import type { SubtitleCue } from './utils/srt'
 import { useT } from './i18n'
 import './styles/App.css'
@@ -107,6 +106,7 @@ export default function App() {
   const [videoPath, setVideoPath] = useState<string | null>(null)
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [duration, setDuration] = useState(0)
+  const [videoSize, setVideoSize] = useState<{ w: number; h: number } | null>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [showExport, setShowExport] = useState(false)
@@ -200,7 +200,7 @@ export default function App() {
   const hasEdits = useRef(false)
   useEffect(() => { hasEdits.current = canUndo }, [canUndo])
 
-  const loadVideo = useCallback(async (filePath: string, initial?: EditableState) => {
+  const loadVideo = useCallback(async (filePath: string) => {
     if (hasEdits.current && !window.confirm(t.confirm_open_new)) return
     const id = ++loadId.current
     setLoading({ msg: t.loading_preparing, progress: 0 })
@@ -229,10 +229,11 @@ export default function App() {
     }
     setIsPlaying(false)
     setActivePanel(null)
-    reset(initial)
+    reset()
     setVideoPath(filePath)
     setVideoUrl(url)
     setDuration(0)
+    setVideoSize(null)
     setCurrentTime(0)
     setLoading(null)
   }, [t, reset])
@@ -257,23 +258,6 @@ export default function App() {
   const undoOrTextUndo = useCallback(() => { if (inTextField()) document.execCommand('undo'); else undo() }, [undo])
   const redoOrTextRedo = useCallback(() => { if (inTextField()) document.execCommand('redo'); else redo() }, [redo])
 
-  // ─── Projects and unsaved edits ────────────────────────────────────────────
-  const videoPathRef = useRef<string | null>(null)
-  const editableRef = useRef(editable)
-  useEffect(() => { videoPathRef.current = videoPath; editableRef.current = editable }, [videoPath, editable])
-
-  const saveProject = useCallback(async () => {
-    const path = videoPathRef.current
-    if (!path) return
-    try {
-      const saved = await window.electronAPI.saveProject(toProject(path, editableRef.current))
-      if (saved) setToast(t.project_saved)
-    } catch (err) {
-      console.error('Project save failed:', err)
-      setToast(t.project_save_failed)
-    }
-  }, [t])
-
   // The main process asks before closing the window when this is true.
   useEffect(() => {
     window.electronAPI.setDirty(canUndo)
@@ -285,12 +269,10 @@ export default function App() {
       window.electronAPI.onMenuOpenVideo((fp) => loadVideo(fp)),
       window.electronAPI.onMenuUndo(undoOrTextUndo),
       window.electronAPI.onMenuRedo(redoOrTextRedo),
-      window.electronAPI.onMenuSaveProject(() => { void saveProject() }),
-      window.electronAPI.onMenuLoadProject((p) => { void loadVideo(p.videoPath, fromProjectState(p.state)) }),
       window.electronAPI.onFullscreenEntered(() => setToast(fullscreenHint)),
     ]
     return () => offs.forEach(off => off())
-  }, [loadVideo, undoOrTextUndo, redoOrTextRedo, saveProject, fullscreenHint])
+  }, [loadVideo, undoOrTextUndo, redoOrTextRedo, fullscreenHint])
 
   useEffect(() => {
     window.electronAPI.setUndoRedoState(canUndo, canRedo)
@@ -457,6 +439,8 @@ export default function App() {
   const refreshRecent = useCallback(() => {
     window.electronAPI.listRecent().then(setRecent).catch(() => setRecent([]))
   }, [])
+  // The menu can clear the list too.
+  useEffect(() => window.electronAPI.onRecentChanged(refreshRecent), [refreshRecent])
   // The home screen lists what was opened lately; refresh it whenever it is shown.
   useEffect(() => {
     if (!videoPath && !loading) refreshRecent()
@@ -521,7 +505,10 @@ export default function App() {
   return (
     <div className="app-layout">
       <div className="top-bar">
-        <div className="app-title">LightCutVidz</div>
+        <div className="file-badge" title={videoPath ?? undefined}>
+          <span className="file-badge-name">{videoPath?.split(/[\\/]/).pop()}</span>
+          <span className="file-badge-meta">{[videoSize && `${videoSize.w}×${videoSize.h}`, formatTime(duration)].filter(Boolean).join(' · ')}</span>
+        </div>
         <div className="top-bar-actions">
           <button className="btn-ghost btn-icon" onClick={undo} disabled={!canUndo} title={`${t.app_undo} (${isMac ? 'Cmd+Z' : 'Ctrl+Z'})`}>
             <UndoIcon />
@@ -549,7 +536,11 @@ export default function App() {
             neutral={showCrop}
             onError={onVideoError}
             onTimeUpdate={handleTimeUpdate}
-            onDurationLoaded={setDuration}
+            onDurationLoaded={(d) => {
+              setDuration(d)
+              const v = videoRef.current
+              if (v?.videoWidth) setVideoSize({ w: v.videoWidth, h: v.videoHeight })
+            }}
             onPlayPause={setIsPlaying}
           />
           <FilterDefs />

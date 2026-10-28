@@ -9,6 +9,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   padding: 0 16px;
   height: 44px;
   background: var(--bg-secondary);
@@ -17,14 +18,24 @@
   -webkit-app-region: drag;
 }
 
-.app-title {
-  font-weight: 700;
-  font-size: 15px;
-  color: var(--accent);
-  letter-spacing: -0.3px;
+.file-badge {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
+.file-badge-name {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-badge-meta { font-size: 11px; color: var(--text-secondary); }
 
 .top-bar-actions {
+  flex-shrink: 0;
   display: flex;
   gap: 8px;
   -webkit-app-region: no-drag;

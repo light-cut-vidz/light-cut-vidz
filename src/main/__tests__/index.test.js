@@ -131,6 +131,7 @@ const electronDouble = {
     getAppPath: () => '/app',
     getVersion: () => '1.4.0',
     setName: vi.fn(),
+    commandLine: { appendSwitch: vi.fn() },
     requestSingleInstanceLock: () => true,
   },
   BrowserWindow: class {
@@ -291,11 +292,11 @@ describe('startup wiring', () => {
   it('registers every IPC channel the preload can call', () => {
     expect([...ipcHandlers.keys()].sort()).toEqual([
       'changelog:get', 'dialog:openSubtitle', 'dialog:openVideo', 'dialog:saveVideo',
-      'ffmpeg:cancel', 'ffmpeg:capabilities', 'ffmpeg:export', 'ffmpeg:preview', 'file:toUrl', 'project:save',
+      'ffmpeg:cancel', 'ffmpeg:capabilities', 'ffmpeg:export', 'ffmpeg:preview', 'file:toUrl',
       'queue:add', 'queue:cancel', 'queue:clearFinished', 'queue:list', 'queue:reveal',
       'recent:clear', 'recent:list', 'recent:open', 'recent:remove', 'settings:get', 'settings:setTheme',
     ])
-    expect([...ipcListeners.keys()].sort()).toEqual(['app:setDirty', 'menu:setLanguage', 'menu:setUndoRedoState'])
+    expect([...ipcListeners.keys()].sort()).toEqual(['app:setDirty', 'menu:setLanguage', 'menu:setUndoRedoState', 'update:answer'])
   })
 })
 
@@ -931,76 +932,7 @@ describe('menu:setUndoRedoState', () => {
   })
 })
 
-// ── Projects and unsaved edits ───────────────────────────────────────────────
-
-describe('project files', () => {
-  const project = (videoPath) => ({ videoPath, state: { speed: 2 } })
-
-  it('writes a project chosen through the save dialog, adding the extension', async () => {
-    const target = path.join(tmpDir, 'my-edit')
-    showSaveDialog.mockResolvedValueOnce({ canceled: false, filePath: target })
-    await expect(invoke('project:save', project('/a.mp4'))).resolves.toBe(`${target}.lcvproj`)
-    expect(JSON.parse(fs.readFileSync(`${target}.lcvproj`, 'utf-8'))).toMatchObject({ lightcutvidz: 1, videoPath: '/a.mp4', state: { speed: 2 } })
-  })
-
-  it('returns null when the save dialog is cancelled', async () => {
-    await expect(invoke('project:save', project('/a.mp4'))).resolves.toBeNull()
-  })
-
-  it('refuses something that is not a project (it could not be reopened)', async () => {
-    await expect(invoke('project:save', project('/etc/passwd'))).rejects.toThrow('not a project')
-    await expect(invoke('project:save', null)).rejects.toThrow('Invalid project')
-  })
-
-  describe('opening', () => {
-    async function openWith(contents, { exists = true } = {}) {
-      const file = path.join(tmpDir, 'p.lcvproj')
-      fs.writeFileSync(file, contents)
-      const video = path.join(tmpDir, 'v.mp4')
-      if (exists) fs.writeFileSync(video, 'x')
-      showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [file] })
-      const win = { webContents: { send: vi.fn() } }
-      await Promise.resolve()
-      await menuCalls.at(-1).onOpenProject(win)
-      return { win, video }
-    }
-
-    it('hands a valid project to the renderer and allows its video', async () => {
-      const video = path.join(tmpDir, 'v.mp4')
-      const { win } = await openWith(JSON.stringify({ lightcutvidz: 1, videoPath: video, state: { speed: 3 } }))
-      expect(win.webContents.send).toHaveBeenCalledWith('menu:loadProject', { videoPath: video, state: { speed: 3 } })
-      const [[, handler]] = protocolHandle.mock.calls
-      expect((await handler({ url: `lcv-file://local${video}`, headers: new Headers() })).status).toBe(200)
-    })
-
-    it('tells the user when the file is not a project', async () => {
-      const { win } = await openWith('garbage')
-      expect(win.webContents.send).not.toHaveBeenCalled()
-      expect(electronDouble.dialog.showMessageBox).toHaveBeenCalledWith(win, expect.objectContaining({ type: 'error', message: expect.stringContaining('not a valid') }))
-    })
-
-    it('tells the user when the video has been moved or deleted', async () => {
-      const video = path.join(tmpDir, 'v.mp4')
-      const { win } = await openWith(JSON.stringify({ lightcutvidz: 1, videoPath: video, state: {} }), { exists: false })
-      expect(win.webContents.send).not.toHaveBeenCalled()
-      expect(electronDouble.dialog.showMessageBox).toHaveBeenCalledWith(win, expect.objectContaining({ message: expect.stringContaining('cannot be found') }))
-    })
-
-    it('does nothing when the dialog is cancelled', async () => {
-      const win = { webContents: { send: vi.fn() } }
-      await Promise.resolve()
-      await menuCalls.at(-1).onOpenProject(win)
-      expect(win.webContents.send).not.toHaveBeenCalled()
-    })
-  })
-
-  it('"Save project" from the menu asks the renderer for its state', async () => {
-    await Promise.resolve()
-    const win = { webContents: { send: vi.fn() } }
-    menuCalls.at(-1).onSaveProject(win)
-    expect(win.webContents.send).toHaveBeenCalledWith('menu:saveProject')
-  })
-})
+// ── Unsaved edits ────────────────────────────────────────────────────────────
 
 describe('closing the window with unsaved edits', () => {
   async function windowClose() {
@@ -1305,27 +1237,6 @@ describe('recent files', () => {
     const g = path.join(tmpDir, 'other.mp4'); fs.writeFileSync(g, 'x')
     await invoke('ffmpeg:preview', f); await invoke('ffmpeg:preview', g); await invoke('ffmpeg:preview', f)
     expect((await invoke('recent:list')).map(i => i.name)).toEqual(['seen.mp4', 'other.mp4'])
-  })
-
-  it('remembers a saved project', async () => {
-    const target = path.join(tmpDir, 'saved')
-    showSaveDialog.mockResolvedValueOnce({ canceled: false, filePath: target })
-    await invoke('project:save', { videoPath: '/a.mp4', state: {} })
-    const list = await invoke('recent:list')
-    expect(list[0]).toMatchObject({ kind: 'project', name: 'saved.lcvproj' })
-  })
-
-  it('opens a project from the list and does not also list its video', async () => {
-    const video = videoFile()
-    const proj = path.join(tmpDir, 'p.lcvproj')
-    fs.writeFileSync(proj, JSON.stringify({ lightcutvidz: 1, videoPath: video, state: {} }))
-    showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [proj] })
-    await Promise.resolve()
-    const win = { webContents: { send: vi.fn() } }
-    await menuCalls.at(-1).onOpenProject(win)
-    expect(win.webContents.send).toHaveBeenCalledWith('menu:loadProject', expect.objectContaining({ videoPath: video }))
-    await invoke('ffmpeg:preview', video) // what the renderer does next
-    expect((await invoke('recent:list')).map(i => i.kind)).toEqual(['project'])
   })
 
   it('opens only what is in the list', async () => {

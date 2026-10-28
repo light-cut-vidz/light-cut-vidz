@@ -18,12 +18,11 @@ const { detectHardware, stabilizationWorks } = require('./lib/hardware')
 const { canPlayDirectly } = require('./lib/preview')
 const { decodeText } = require('./lib/decodeText')
 const { parseChangelog, entriesUpTo } = require('./lib/changelog')
-const { serializeProject, parseProject, PROJECT_EXTENSION } = require('./lib/project')
 const { createMediaHandler, mediaType } = require('./lib/mediaProtocol')
 const { translate } = require('./lib/i18n')
 const { buildMenu, setUndoRedoEnabled, VIDEO_EXTENSIONS } = require('./lib/menu')
 const { setupAutoUpdater, checkForUpdates } = require('./lib/updater')
-const { showAboutWindow } = require('./lib/aboutWindow')
+const { createUpdateDialog } = require('./lib/updateDialog')
 const { LOCAL_SCHEME, toLocalUrl } = require('./lib/localProtocol')
 
 // The bundled ffmpeg has no GPU encoder on Linux. Pointing this variable at a
@@ -33,6 +32,12 @@ const ffmpegPath = customFfmpeg && path.isAbsolute(customFfmpeg) && fs.existsSyn
   ? customFfmpeg
   : fixAsarPath(ffmpegStatic)
 const ffmpeg = createFfmpeg({ ffmpegPath })
+
+// Chromium tags its Wayland surfaces with a colour space, so the compositor
+// lifts the dark greys (#0f0f0f shows as about #161616) compared with the other
+// LightCut apps, whose WebView is untagged. Not tagging them keeps the suite
+// identical.
+if (process.platform === 'linux') app.commandLine.appendSwitch('disable-features', 'WaylandWpColorManagerV1')
 
 const isDev = process.env.NODE_ENV === 'development'
 const isMac = process.platform === 'darwin'
@@ -48,10 +53,8 @@ let win = null
 let undoRedoState = { canUndo: false, canRedo: false }
 let forceClose = false
 let settings = sanitizeSettings(null)
-/** @type {{ kind: 'project'|'video', path: string, openedAt: number }[]} */
+/** @type {{ kind: 'video', path: string, openedAt: number }[]} */
 let recentItems = []
-// The video of the project being opened is not "a video the user opened".
-let skipRecentVideoFor = null
 const updaterState = { updateDownloaded: false }
 
 const t = (key, ...args) => translate(currentLang, key, ...args)
@@ -76,19 +79,25 @@ function allowMedia(filePath) {
 // own object nor on `app`.
 if (electron.autoUpdater) electron.autoUpdater.on('before-quit-for-update', () => { forceClose = true })
 
+// The updater's questions and messages are shown in the window, not in native boxes.
+const updateDialog = createUpdateDialog({ getWindow: () => win, dialog })
+
 setupAutoUpdater({
   autoUpdater,
-  dialog,
+  dialog: updateDialog,
   getWindow: () => win,
   t,
   state: updaterState,
 })
 
-const checkUpdates = (fromMenu = false) => checkForUpdates({
-  autoUpdater, dialog, app, getWindow: () => win, t, state: updaterState, isDev, isMac, isDeb, isManual, fromMenu,
-  openExternal: (url) => shell.openExternal(url),
-  getLang: () => currentLang,
-})
+const checkUpdates = (fromMenu = false) => {
+  if (fromMenu) win?.webContents.send('update:notice', { type: 'info', message: t('update_checking') })
+  return checkForUpdates({
+    autoUpdater, dialog: updateDialog, app, getWindow: () => win, t, state: updaterState, isDev, isMac, isDeb, isManual, fromMenu,
+    openExternal: (url) => shell.openExternal(url),
+    getLang: () => currentLang,
+  })
+}
 
 // ─── Settings and recent files ────────────────────────────────────────────────
 
@@ -120,6 +129,8 @@ async function rememberRecent(filePath) {
 async function forgetRecent(filePath) {
   recentItems = filePath === undefined ? [] : removeRecent(recentItems, filePath)
   rebuildMenu()
+  // The home screen lists the same entries: tell it, the menu can clear them too.
+  sendToWindow('recent:changed')
   await writeJson(recentFile(), { items: recentItems }).catch(() => {})
 }
 
@@ -274,8 +285,6 @@ function rebuildMenu() {
     t,
     currentLang,
     onOpenVideo: (focused, filePath) => { allowMedia(filePath); focused.webContents.send('menu:openVideo', filePath) },
-    onSaveProject: (focused) => focused?.webContents.send('menu:saveProject'),
-    onOpenProject: openProject,
     onUndo: (focused) => focused?.webContents.send('menu:undo'),
     onRedo: (focused) => focused?.webContents.send('menu:redo'),
     onFullscreenEntered: (focused) => focused.webContents.send('menu:fullscreen-entered'),
@@ -285,41 +294,13 @@ function rebuildMenu() {
     onClearRecent: () => { void forgetRecent() },
     onSwitchTheme: (theme) => { void setTheme(theme) },
     onShowChangelog: (focused) => focused?.webContents.send('menu:showChangelog'),
-    onAbout: () => showAboutWindow({ parent: win, title: t('about_title'), message: t('about_message', app.getVersion()), note: t('about_licenses') }),
+    onAbout: () => win?.webContents.send('menu:about', app.getVersion()),
     onCheckUpdates: checkUpdates,
     onSwitchLanguage: switchLanguage,
   })
   // A rebuilt menu starts with Undo/Redo disabled and the renderer will not
   // re-announce an unchanged state, so restore what it last reported.
   setUndoRedoEnabled(undoRedoState.canUndo, undoRedoState.canRedo)
-}
-
-async function openProject(focused) {
-  const target = focused || win
-  const { canceled, filePaths } = await dialog.showOpenDialog(target, {
-    filters: [{ name: t('filter_projects'), extensions: [PROJECT_EXTENSION] }],
-    properties: ['openFile'],
-  })
-  if (canceled || !filePaths[0]) return
-  await openProjectFile(target, filePaths[0])
-}
-
-async function openProjectFile(target, filePath) {
-  let project
-  try {
-    project = parseProject(await fs.promises.readFile(filePath, 'utf-8'))
-  } catch {
-    dialog.showMessageBox(target, { type: 'error', message: t('project_invalid') })
-    return
-  }
-  if (!(await exists(project.videoPath))) {
-    dialog.showMessageBox(target, { type: 'error', message: t('project_video_missing', project.videoPath) })
-    return
-  }
-  allowMedia(project.videoPath)
-  skipRecentVideoFor = project.videoPath
-  void rememberRecent(filePath)
-  target.webContents.send('menu:loadProject', project)
 }
 
 /** Opens something from the recent list (and only from it: that is the allow-list). */
@@ -331,8 +312,7 @@ async function openRecent(filePath) {
     dialog.showMessageBox(win, { type: 'error', message: t('recent_missing', item.path) })
     return
   }
-  if (item.kind === 'project') await openProjectFile(win, item.path)
-  else sendOpenVideo(item.path)
+  sendOpenVideo(item.path)
 }
 
 function switchLanguage(lang) {
@@ -516,8 +496,7 @@ handle('ffmpeg:preview', async (event, inputPath) => {
   if (previewHandle) previewHandle.kill()
   await cleanupPreview()
   allowMedia(inputPath)
-  if (skipRecentVideoFor === inputPath) skipRecentVideoFor = null
-  else void rememberRecent(inputPath)
+  void rememberRecent(inputPath)
 
   let metadata = null
   try { metadata = await probeFile(inputPath) } catch { /* let the transcode report it */ }
@@ -570,23 +549,9 @@ handle('changelog:get', async (_, lang) => {
   }
 })
 
-handle('project:save', async (_, project) => {
-  if (!project || typeof project !== 'object') throw new Error('Invalid project')
-  const text = serializeProject(project)
-  parseProject(text) // refuses a project this app would not be able to open again
-  const { canceled, filePath } = await dialog.showSaveDialog(win, {
-    defaultPath: `project.${PROJECT_EXTENSION}`,
-    filters: [{ name: t('filter_projects'), extensions: [PROJECT_EXTENSION] }],
-  })
-  if (canceled || !filePath) return null
-  const finalPath = ensureExtension(filePath, PROJECT_EXTENSION)
-  await fs.promises.writeFile(finalPath, text, 'utf-8')
-  void rememberRecent(finalPath)
-  return finalPath
-})
-
 // Whether the renderer holds edits that closing the window would lose.
 let hasUnsavedEdits = false
+listen('update:answer', (_, id, response) => updateDialog.answer(id, response))
 listen('app:setDirty', (_, dirty) => { hasUnsavedEdits = !!dirty })
 
 handle('ffmpeg:cancel', () => {

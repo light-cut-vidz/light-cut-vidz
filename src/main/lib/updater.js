@@ -82,12 +82,12 @@ async function runCheck({ autoUpdater, dialog, app, getWindow, t, state, isDev, 
   try {
     const result = await autoUpdater.checkForUpdates()
     if (!result || !result.updateInfo) {
-      if (fromMenu) dialog.showMessageBox(win, { type: 'info', title: t('no_update_title'), message: t('no_update_msg') })
+      if (fromMenu) dialog.showMessageBox(win, { type: 'success', title: t('no_update_title'), message: t('no_update_msg') })
       return
     }
     const latest = result.updateInfo.version
     if (!isNewer(latest, app.getVersion())) {
-      if (fromMenu) dialog.showMessageBox(win, { type: 'info', title: t('no_update_title'), message: t('no_update_msg_v', latest) })
+      if (fromMenu) dialog.showMessageBox(win, { type: 'success', title: t('no_update_title'), message: t('no_update_msg_v', latest) })
       return
     }
 
@@ -220,7 +220,7 @@ async function _prepareUpdate({ dialog, app, win, t, fromMenu, ext, noAssetKey, 
   _downloadFile = downloadFile,
   _verify = _verifyDownload,
 }) {
-  const info = (title, message) => dialog.showMessageBox(win, { type: 'info', title, message })
+  const info = (title, message, type = 'info') => dialog.showMessageBox(win, { type, title, message })
   const error = (message) => dialog.showMessageBox(win, { type: 'error', title: t('update_failed_title'), message })
 
   let releaseData
@@ -233,7 +233,7 @@ async function _prepareUpdate({ dialog, app, win, t, fromMenu, ext, noAssetKey, 
 
   const latest = releaseData?.tag_name?.replace(/^v/, '')
   if (!latest) {
-    if (fromMenu) info(t('no_update_title'), t('no_update_msg'))
+    if (fromMenu) info(t('no_update_title'), t('no_update_msg'), 'success')
     return null
   }
   if (!VERSION_RE.test(latest)) {
@@ -243,7 +243,7 @@ async function _prepareUpdate({ dialog, app, win, t, fromMenu, ext, noAssetKey, 
 
   const current = app.getVersion()
   if (!isNewer(latest, current)) {
-    if (fromMenu) info(t('no_update_title'), t('no_update_msg_v', latest))
+    if (fromMenu) info(t('no_update_title'), t('no_update_msg_v', latest), 'success')
     return null
   }
 
@@ -405,7 +405,7 @@ async function _upgradeManual({ dialog, app, win, t, fromMenu, openExternal, lan
   }
   const latest = release?.tag_name?.replace(/^v/, '')
   if (!latest || !VERSION_RE.test(latest) || !isNewer(latest, app.getVersion())) {
-    if (fromMenu) dialog.showMessageBox(win, { type: 'info', title: t('no_update_title'), message: latest ? t('no_update_msg_v', latest) : t('no_update_msg') })
+    if (fromMenu) dialog.showMessageBox(win, { type: 'success', title: t('no_update_title'), message: latest ? t('no_update_msg_v', latest) : t('no_update_msg') })
     return
   }
   const notes = await loadReleaseNotes({ lang, current: app.getVersion(), latest, _fetchText })

@@ -135,8 +135,13 @@ export const fr: Translations = {
   export_cancelled: 'Export annulé',
   export_nothing: 'Rien à exporter : toute la vidéo est coupée.',
   export_already_running: 'Un export est déjà en cours.',
-  project_saved: 'Projet enregistré',
-  project_save_failed: 'Impossible d\'enregistrer le projet.',
+  update_notes: 'Nouveautés',
+  update_hide_notes: 'Masquer',
+  about_title: 'À propos de LightCutVidz',
+  about_tagline: 'Éditeur vidéo léger — découper, recadrer, filtrer, exporter.',
+  about_version: (v: string) => `Version ${v}`,
+  about_licenses: 'Licence MIT. Inclut FFmpeg, sous licence GPL v3 — voir THIRD_PARTY_NOTICES.md pour les sources et licences.',
+  about_close: 'Fermer',
   changelog_title: 'Nouveautés',
   changelog_close: 'Fermer',
   changelog_empty: 'Aucun journal des modifications disponible.',
@@ -199,7 +204,6 @@ export const fr: Translations = {
 
   // Fichiers récents
   recent_title: 'Récents',
-  recent_project: 'Projet',
   recent_clear: 'Effacer',
   recent_remove: 'Retirer de la liste',
 

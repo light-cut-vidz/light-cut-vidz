@@ -241,30 +241,6 @@ describe('setUndoRedoEnabled', () => {
   })
 })
 
-describe('project menu items', () => {
-  const fileMenu = (opts) => buildMenuTemplate(makeOpts(opts)).find(m => m.label === 'menu_file').submenu
-
-  it('offers Save and Open project with their shortcuts', () => {
-    const items = fileMenu()
-    expect(items.find(i => i.label === 'menu_save_project').accelerator).toBe('CmdOrCtrl+S')
-    expect(items.find(i => i.label === 'menu_open_project').accelerator).toBe('CmdOrCtrl+Shift+O')
-  })
-
-  it('calls the handlers with the focused window', () => {
-    const onSaveProject = vi.fn()
-    const onOpenProject = vi.fn()
-    const items = fileMenu({ onSaveProject, onOpenProject })
-    items.find(i => i.label === 'menu_save_project').click()
-    items.find(i => i.label === 'menu_open_project').click()
-    expect(onSaveProject).toHaveBeenCalled()
-    expect(onOpenProject).toHaveBeenCalled()
-  })
-
-  it('does not crash when no handler is provided', () => {
-    expect(() => fileMenu().find(i => i.label === 'menu_save_project').click()).not.toThrow()
-  })
-})
-
 describe('What\'s new menu item', () => {
   it('sits in the Help menu and calls the handler with the focused window', () => {
     const onShowChangelog = vi.fn()
@@ -280,7 +256,7 @@ describe('What\'s new menu item', () => {
 
 describe('Open recent submenu', () => {
   const recent = [
-    { kind: 'project', path: '/home/u/edit.lcvproj', openedAt: 2 },
+    { kind: 'video', path: '/home/u/edit.mp4', openedAt: 2 },
     { kind: 'video', path: '/home/u/clip.mp4', openedAt: 1 },
   ]
   const submenu = (opts) => buildMenuTemplate(makeOpts(opts)).find(m => m.label === 'menu_file').submenu.find(i => i.label === 'menu_open_recent')
@@ -288,9 +264,9 @@ describe('Open recent submenu', () => {
   it('is disabled when there is nothing recent', () => {
     expect(submenu({ recent: [] }).enabled).toBe(false)
   })
-  it('lists each file by name, marking projects, with the full path as tooltip', () => {
+  it('lists each file by name, with the full path as tooltip', () => {
     const items = submenu({ recent }).submenu
-    expect(items[0].label).toBe('◆ edit.lcvproj')
+    expect(items[0].label).toBe('edit.mp4')
     expect(items[1].label).toBe('clip.mp4')
     expect(items[1].toolTip).toBe('/home/u/clip.mp4')
   })

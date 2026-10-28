@@ -5,6 +5,21 @@ The French version is in [CHANGELOG.fr.md](CHANGELOG.fr.md) — keep both in ste
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+## [1.1.0] - 2026-10-28
+
+### Changed
+- The top bar shows the name of the open file, with its size and duration, instead of the name of the app.
+- The updater's questions and messages, and the About box, are shown in the window instead of native boxes; the "no update" notice is green and errors are red.
+- The version number is no longer shown at the bottom of the sidebar; it is in the About box.
+
+### Fixed
+- Clearing the recent files from the File menu now empties the list on the home screen too.
+
+### Removed
+- Projects: *Save project…* and *Open project…* (`.lcvproj` files) are gone. You open a video, edit it and export it; nothing else is saved, and a project already in your recent list simply disappears from it.
+
 ## [1.0.7] - 2026-10-22
 
 ### Fixed

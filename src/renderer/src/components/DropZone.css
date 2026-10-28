@@ -10,9 +10,25 @@
 
 .dropzone.dragging {
   background: var(--drop-bg);
-  outline: 2px dashed var(--accent);
-  outline-offset: -16px;
 }
+
+/* The dashed frame says "drop a file here"; it turns accent-coloured while a
+   file hovers. */
+.dropzone-frame {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  /* Same size in every app of the suite, whatever the name inside. */
+  width: 340px;
+  height: 284px;
+  padding: 0 32px;
+  border: 2px dashed var(--border);
+  border-radius: 16px;
+  transition: border-color 0.2s;
+}
+.dropzone.dragging .dropzone-frame { border-color: var(--accent); }
 
 .dropzone-inner {
   display: flex;

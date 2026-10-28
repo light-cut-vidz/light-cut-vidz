@@ -1,4 +1,4 @@
-.recent { width: min(520px, 90%); margin-top: 26px; text-align: left; }
+.recent { width: min(520px, 90%); margin-top: 18px; text-align: left; }
 .recent-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .recent-head h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-secondary); }
 .recent-clear { font-size: 11px; color: var(--text-secondary); }
@@ -11,8 +11,7 @@
 }
 .recent-open:hover { border-color: var(--accent); }
 .recent-kind { font-size: 10px; border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; color: var(--text-secondary); flex-shrink: 0; }
-.recent-kind.project { color: var(--accent); border-color: var(--accent); }
-.recent-name { font-weight: 600; white-space: nowrap; }
-.recent-dir { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.recent-name { font-weight: 600; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.recent-dir { flex-shrink: 0; max-width: 40%; color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .recent-remove { color: var(--text-muted); font-size: 16px; padding: 0 8px; }
 .recent-remove:hover { color: var(--danger); }

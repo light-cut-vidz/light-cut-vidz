@@ -133,8 +133,13 @@ export const en = {
   export_cancelled: 'Export cancelled',
   export_nothing: 'Nothing to export: every part of the video is cut.',
   export_already_running: 'An export is already running.',
-  project_saved: 'Project saved',
-  project_save_failed: 'Could not save the project.',
+  update_notes: 'What\'s new',
+  update_hide_notes: 'Hide',
+  about_title: 'About LightCutVidz',
+  about_tagline: 'Lightweight video editor — trim, crop, filter, export.',
+  about_version: (v: string) => `Version ${v}`,
+  about_licenses: 'MIT licence. Includes FFmpeg, under the GPL v3 licence — see THIRD_PARTY_NOTICES.md for the sources and licences.',
+  about_close: 'Close',
   changelog_title: 'What\'s new',
   changelog_close: 'Close',
   changelog_empty: 'No changelog available.',
@@ -197,7 +202,6 @@ export const en = {
 
   // Recent files
   recent_title: 'Recent',
-  recent_project: 'Project',
   recent_clear: 'Clear',
   recent_remove: 'Remove from the list',
 

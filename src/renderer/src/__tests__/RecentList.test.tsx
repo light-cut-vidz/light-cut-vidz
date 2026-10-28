@@ -6,8 +6,8 @@ import DropZone from '../components/DropZone'
 import { LangProvider } from '../i18n'
 import type { RecentEntry } from '../electron'
 
-const entry = (n: number, kind: 'video' | 'project' = 'video'): RecentEntry => ({
-  kind, path: `/home/u/dir${n}/file${n}.${kind === 'project' ? 'lcvproj' : 'mp4'}`, name: `file${n}.${kind === 'project' ? 'lcvproj' : 'mp4'}`, dir: `/home/u/dir${n}`, openedAt: n,
+const entry = (n: number): RecentEntry => ({
+  kind: 'video', path: `/home/u/dir${n}/file${n}.mp4`, name: `file${n}.mp4`, dir: `/home/u/dir${n}`, openedAt: n,
 })
 const handlers = () => ({ onOpen: vi.fn(), onRemove: vi.fn(), onClear: vi.fn() })
 const r = (items: RecentEntry[], h = handlers()) => ({ h, ...render(<LangProvider><RecentList items={items} {...h} /></LangProvider>) })
@@ -23,11 +23,9 @@ describe('RecentList', () => {
     expect(items[0].textContent).toContain('file1.mp4')
     expect(items[0].textContent).toContain('/home/u/dir1')
   })
-  it('marks projects and shows the extension of videos', () => {
-    const { container } = r([entry(1, 'project'), entry(2)])
-    const kinds = container.querySelectorAll('.recent-kind')
-    expect(kinds[0].className).toContain('project')
-    expect(kinds[1].textContent).toBe('MP4')
+  it('shows the extension of each video', () => {
+    const { container } = r([entry(1)])
+    expect(container.querySelector('.recent-kind')?.textContent).toBe('MP4')
   })
   it('shows at most five', () => {
     expect(r(Array.from({ length: 9 }, (_, i) => entry(i))).container.querySelectorAll('.recent-item')).toHaveLength(5)
