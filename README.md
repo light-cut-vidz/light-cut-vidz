@@ -8,7 +8,7 @@ Trim, crop, filter and subtitle your videos, then export them — locally, with 
 
 ![CI](https://github.com/light-cut-vidz/light-cut-vidz/actions/workflows/ci.yml/badge.svg) ![license](https://img.shields.io/badge/license-MIT-blue) ![platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS-lightgrey)
 
-**Website** — <https://light-cut-vidz.github.io/light-cut-vidz/>
+**Website** — <https://light-app-suite.github.io/site/cut-vidz/>
 
 ---
 
@@ -384,13 +384,13 @@ light-cut-vidz/
 ├── CHANGELOG.md / CHANGELOG.fr.md     # release notes, English and French (shown in the app and in updates)
 ├── scripts/release-notes.js           # builds the GitHub release notes from the changelogs
 ├── THIRD_PARTY_NOTICES.md             # FFmpeg (GPLv3) and other bundled software
-├── html/                              # GitHub Pages landing page
+├── html/                              # GitHub Pages: redirect to the Light App Suite site
 ├── install.sh                         # one-line installer (Homebrew on macOS, deb/AppImage on Linux)
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml                     # lint + typecheck + tests + vite build
 │       ├── release.yml                # build, publish, update the Homebrew tap
-│       └── pages.yml                  # deploy html/ to GitHub Pages
+│       └── pages.yml                  # deploy html/ (redirect) to GitHub Pages
 ├── vite.config.mts
 ├── vitest.config.ts
 ├── tsconfig.json                      # renderer
