@@ -198,12 +198,14 @@ const STABILIZE = {
 /**
  * Pass 1 of stabilisation: the kept segments, joined, analysed by
  * `vidstabdetect` which writes the motion data to `trf`. Video only.
+ * accuracy=15 is vid.stab's default; the macOS ffmpeg build writes motion data
+ * it cannot read back at accuracy=9 ("Cannot parse localmotion!").
  */
 function buildDetectGraph({ segments, trf, level }) {
   const { shakiness } = STABILIZE[level]
   const parts = segments.map((s, i) => `[0:v]trim=start=${s.start.toFixed(3)}:end=${s.end.toFixed(3)},setpts=PTS-STARTPTS[v${i}]`)
   parts.push(`${segments.map((_, i) => `[v${i}]`).join('')}concat=n=${segments.length}:v=1:a=0[vc]`)
-  parts.push(`[vc]vidstabdetect=shakiness=${shakiness}:accuracy=9:result=${escapeForFfmpegFilter(trf)}[vo]`)
+  parts.push(`[vc]vidstabdetect=shakiness=${shakiness}:accuracy=15:result=${escapeForFfmpegFilter(trf)}[vo]`)
   return parts.join(';')
 }
 

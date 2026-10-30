@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "npm run vite:build && xvfb-run -a electron --no-sandbox --disable-gpu e2e/smoke.js",
+    "test:e2e": "npm run vite:build && node scripts/e2e.js",
     "lint": "eslint src e2e scripts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.main.json"
   },

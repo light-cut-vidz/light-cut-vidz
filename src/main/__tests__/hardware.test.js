@@ -58,7 +58,7 @@ describe('stabilizationWorks', () => {
   it('tries both passes and says yes when they succeed', async () => {
     const run = vi.fn().mockResolvedValue(undefined)
     expect(await stabilizationWorks({ run, filtersText, workDir: '/w' })).toBe(true)
-    expect(run.mock.calls[0][0].join(' ')).toContain('vidstabdetect=result=/w/probe.trf')
+    expect(run.mock.calls[0][0].join(' ')).toContain('vidstabdetect=shakiness=6:accuracy=15:result=/w/probe.trf')
     expect(run.mock.calls[1][0].join(' ')).toContain('vidstabtransform=input=/w/probe.trf')
   })
 

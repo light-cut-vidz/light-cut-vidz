@@ -261,7 +261,7 @@ describe('stabilisation graphs', () => {
     const g = buildDetectGraph({ segments: segs, trf: '/w/motion.trf', level: 'normal' })
     expect(g).toContain('[0:v]trim=start=0.000:end=2.000')
     expect(g).toContain('concat=n=2:v=1:a=0[vc]')
-    expect(g).toContain('vidstabdetect=shakiness=6:accuracy=9:result=/w/motion.trf[vo]')
+    expect(g).toContain('vidstabdetect=shakiness=6:accuracy=15:result=/w/motion.trf[vo]')
     expect(g).not.toContain('atrim')
   })
   it.each([['light', 4, 8], ['normal', 6, 15], ['strong', 8, 30]])('%s: shakiness %i, smoothing %i', (level, shakiness, smoothing) => {

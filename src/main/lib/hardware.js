@@ -56,7 +56,7 @@ async function stabilizationWorks({ run, filtersText, workDir }) {
   // vid.stab fail even on builds where it works on real footage.
   const source = ['-f', 'lavfi', '-i', "testsrc2=s=480x300:r=25:d=2,crop=320:240:x='80+20*sin(t*13)':y='30+15*sin(t*17)'"]
   try {
-    await run([...source, '-vf', `vidstabdetect=result=${trf}`, '-f', 'null', '-'])
+    await run([...source, '-vf', `vidstabdetect=shakiness=6:accuracy=15:result=${trf}`, '-f', 'null', '-'])
     await run([...source, '-vf', `vidstabtransform=input=${trf}`, '-f', 'null', '-'])
     return true
   } catch {
