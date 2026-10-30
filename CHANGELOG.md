@@ -7,6 +7,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-10-30
+
+### Fixed
+- macOS: video stabilisation no longer fails with "Cannot parse localmotion!"; the motion analysis now uses vid.stab's default accuracy, which the macOS ffmpeg build can read back.
+
 ## [1.1.1] - 2026-10-30
 
 ### Changed

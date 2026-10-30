@@ -3,7 +3,7 @@
 const { spawnSync } = require('child_process')
 const path = require('path')
 
-const electron = require('electron')
+const electron = /** @type {string} */ (/** @type {unknown} */ (require('electron')))
 const smoke = path.join(__dirname, '..', 'e2e', 'smoke.js')
 const args = ['--no-sandbox', '--disable-gpu', smoke]
 const headless = process.platform === 'linux' && !process.env.DISPLAY
