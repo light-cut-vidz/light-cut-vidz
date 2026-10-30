@@ -50,6 +50,8 @@
   letter-spacing: -0.5px;
 }
 
+.dropzone-title-accent { color: var(--accent); }
+
 .dropzone-subtitle {
   font-size: 15px;
   color: var(--text-secondary);

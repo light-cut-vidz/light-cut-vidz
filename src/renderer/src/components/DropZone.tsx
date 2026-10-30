@@ -52,7 +52,7 @@ export default function DropZone({ onDrop, onOpen, onReject, recent = [], onOpen
           <div className="dropzone-icon">
             <VideoIcon />
           </div>
-          <h2 className="dropzone-title">LightCutVidz</h2>
+          <h2 className="dropzone-title">LightCut<span className="dropzone-title-accent">Vidz</span></h2>
           <p className="dropzone-subtitle">{t.dropzone_subtitle}</p>
           <p className="dropzone-or">{t.dropzone_or}</p>
           <button className="dropzone-btn" onClick={onOpen}>
