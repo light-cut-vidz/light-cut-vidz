@@ -1,0 +1,151 @@
+{
+  "name": "lightcutvidz",
+  "version": "1.0.0",
+  "description": "Lightweight video editor desktop app",
+  "main": "src/main/index.js",
+  "scripts": {
+    "dev": "NODE_ENV=development concurrently \"vite --config vite.config.mts\" \"wait-on http://localhost:5173 && electron . --no-sandbox\"",
+    "build": "vite build --config vite.config.mts && electron-builder",
+    "vite:build": "vite build --config vite.config.mts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "npm run vite:build && node scripts/e2e.js",
+    "lint": "eslint src e2e scripts",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.main.json"
+  },
+  "keywords": [],
+  "author": {
+    "name": "Sikander RAVATE",
+    "email": "r.sik@hotmail.fr"
+  },
+  "license": "MIT",
+  "build": {
+    "appId": "com.lightcutvidz.app",
+    "productName": "LightCutVidz",
+    "directories": {
+      "output": "dist-app"
+    },
+    "icon": "assets/icon.png",
+    "afterPack": "build/afterPack.js",
+    "files": [
+      "dist/**/*",
+      "src/main/**/*",
+      "!src/main/__tests__",
+      "!src/main/__tests__/**",
+      "src/shared/**/*",
+      "src/preload/**/*",
+      "assets/**/*",
+      "THIRD_PARTY_NOTICES.md",
+      "CHANGELOG.fr.md",
+      "CHANGELOG.md",
+      "node_modules/ffmpeg-static/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**/*"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "light-cut-vidz",
+      "repo": "light-cut-vidz"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "AudioVideo",
+      "artifactName": "LightCutVidz-linux.${ext}",
+      "mimeTypes": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska",
+        "video/x-msvideo",
+        "video/x-flv",
+        "video/x-m4v"
+      ]
+    },
+    "mac": {
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "LightCutVidz-mac-${arch}.${ext}",
+      "extendInfo": {
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "Video",
+            "CFBundleTypeRole": "Viewer",
+            "LSItemContentTypes": [
+              "public.movie"
+            ]
+          }
+        ]
+      }
+    },
+    "extraResources": [
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "LICENSE",
+        "to": "LICENSE"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "ffmpeg-static": "^5.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.72.0",
+    "@typescript-eslint/parser": "^8.72.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "@vitest/coverage-v8": "^5.0.5",
+    "concurrently": "^10.0.6",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.15.3",
+    "eslint": "^10.13.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "jsdom": "^30.1.3",
+    "typescript": "~6.0.3",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5",
+    "wait-on": "^9.5.1"
+  },
+  "allowScripts": {
+    "electron@41.8.0": true
+  },
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
+  "overrides": {
+    "minimatch@10": {
+      "brace-expansion": "5.0.12"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/light-cut-vidz/light-cut-vidz.git"
+  }
+}

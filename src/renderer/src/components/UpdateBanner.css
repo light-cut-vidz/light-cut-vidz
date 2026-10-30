@@ -1,0 +1,31 @@
+.update-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 150;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 6px 24px;
+  background: color-mix(in srgb, var(--accent) 15%, var(--bg-primary));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  font-size: 12px;
+  color: var(--accent-hover);
+  text-align: center;
+}
+
+.update-banner button { padding: 3px 12px; font-size: 12px; }
+
+.update-notes {
+  flex-basis: 100%;
+  max-height: 160px;
+  overflow: auto;
+  text-align: left;
+  color: var(--text-primary);
+  padding: 4px 8px;
+  white-space: pre-wrap;
+  user-select: text;
+}

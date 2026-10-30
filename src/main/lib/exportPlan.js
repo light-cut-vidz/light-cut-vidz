@@ -1,0 +1,340 @@
+// Pure pieces of the export pipeline: input validation, the single-pass
+// filter graph, per-format encoder settings and progress arithmetic. Nothing
+// here touches ffmpeg or the disk, so all of it is unit-testable.
+
+const { clampAtempo } = require('./atempo')
+const { escapeForFfmpegFilter } = require('./subtitles')
+const { ASPECTS, REFRAME_MODES } = require('./videoFilters')
+
+const FORMATS = ['mp4', 'mov', 'webm', 'avi', 'gif']
+const QUALITIES = ['high', 'balanced', 'small']
+const STABILIZE_LEVELS = ['off', 'light', 'normal', 'strong']
+const HARDWARE_ENCODERS = ['videotoolbox', 'nvenc', 'qsv', 'vaapi']
+const ANIMATIONS = [
+  'word-pop', 'word-bounce', 'word-highlight', 'rainbow',
+  'sentence-fade', 'sentence-slide', 'typewriter',
+]
+const POSITIONS = ['top', 'middle', 'bottom']
+const MAX_CUES = 50000
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/
+// The font name lands verbatim in a comma-separated ASS Style line.
+const FONT_NAME = /^[\p{L}\p{N} _-]{1,64}$/u
+
+const isNum = (n) => typeof n === 'number' && Number.isFinite(n)
+
+function fail(msg) {
+  throw new Error(`Invalid export options: ${msg}`)
+}
+
+function num(value, name, min, max, fallback) {
+  const v = value === undefined || value === null ? fallback : value
+  if (!isNum(v) || v < min || v > max) fail(`${name} must be a number in [${min}, ${max}]`)
+  return v
+}
+
+function validateSubtitles(subtitles) {
+  if (!subtitles) return null
+  const { cues, style, animation } = subtitles
+  if (!Array.isArray(cues) || cues.length > MAX_CUES) fail('subtitles.cues')
+  if (cues.length === 0) return null
+  const cleanCues = cues.map((c, i) => {
+    if (!c || !isNum(c.start) || !isNum(c.end) || c.start < 0 || c.end <= c.start || typeof c.text !== 'string') {
+      fail(`subtitles.cues[${i}]`)
+    }
+    return { id: i + 1, start: c.start, end: c.end, text: c.text }
+  })
+  if (!style || typeof style !== 'object') fail('subtitles.style')
+  for (const key of ['color', 'outlineColor', 'backgroundColor', 'accentColor']) {
+    if (!HEX_COLOR.test(style[key])) fail(`subtitles.style.${key}`)
+  }
+  if (typeof style.fontFamily !== 'string' || !FONT_NAME.test(style.fontFamily)) fail('subtitles.style.fontFamily')
+  if (!POSITIONS.includes(style.position)) fail('subtitles.style.position')
+  const cleanStyle = {
+    fontFamily: style.fontFamily,
+    fontSize: num(style.fontSize, 'subtitles.style.fontSize', 0.5, 30),
+    color: style.color,
+    outlineColor: style.outlineColor,
+    outlineWidth: num(style.outlineWidth, 'subtitles.style.outlineWidth', 0, 20),
+    backgroundColor: style.backgroundColor,
+    backgroundOpacity: num(style.backgroundOpacity, 'subtitles.style.backgroundOpacity', 0, 1),
+    position: style.position,
+    accentColor: style.accentColor,
+  }
+  if (!ANIMATIONS.includes(animation)) fail('subtitles.animation')
+  return { cues: cleanCues, style: cleanStyle, animation }
+}
+
+/**
+ * Rejects anything the renderer should never send and returns a normalised
+ * copy. The renderer is trusted today, but its values end up in an ffmpeg
+ * filtergraph and an .ass file, where a stray string is an injection.
+ */
+function validateExportOptions(options) {
+  if (!options || typeof options !== 'object') fail('missing options')
+  const { inputPath, outputPath, format } = options
+  if (typeof inputPath !== 'string' || !inputPath) fail('inputPath')
+  if (typeof outputPath !== 'string' || !outputPath) fail('outputPath')
+  if (!FORMATS.includes(format)) fail('format')
+
+  if (!Array.isArray(options.segments) || options.segments.length === 0) {
+    throw new Error('Nothing to export: every part of the video has been cut.')
+  }
+  const segments = options.segments.map((s, i) => {
+    if (!s || !isNum(s.start) || !isNum(s.end) || s.start < 0 || s.end <= s.start) fail(`segments[${i}]`)
+    return { start: s.start, end: s.end }
+  }).sort((a, b) => a.start - b.start)
+
+  let crop = null
+  if (options.crop) {
+    const c = options.crop
+    crop = {
+      x: num(c.x, 'crop.x', 0, 100000),
+      y: num(c.y, 'crop.y', 0, 100000),
+      w: num(c.w, 'crop.w', 1, 100000),
+      h: num(c.h, 'crop.h', 1, 100000),
+    }
+  }
+
+  if (options.filter !== undefined && typeof options.filter !== 'string') fail('filter')
+
+  const quality = options.quality === undefined ? 'balanced' : options.quality
+  if (!QUALITIES.includes(quality)) fail('quality')
+  const stabilize = options.stabilize === undefined ? 'off' : options.stabilize
+  if (!STABILIZE_LEVELS.includes(stabilize)) fail('stabilize')
+  const hardware = options.hardware === undefined || options.hardware === null ? null : options.hardware
+  if (hardware !== null && !HARDWARE_ENCODERS.includes(hardware)) fail('hardware')
+  // Highest output height, or null to keep the source's.
+  const resolution = options.resolution === undefined || options.resolution === null
+    ? null : Math.round(num(options.resolution, 'resolution', 144, 4320))
+
+  let reframe = null
+  if (options.reframe) {
+    const { aspect, mode } = options.reframe
+    if (!ASPECTS.includes(aspect)) fail('reframe.aspect')
+    if (!REFRAME_MODES.includes(mode)) fail('reframe.mode')
+    reframe = { aspect, mode }
+  }
+
+  return {
+    inputPath,
+    outputPath,
+    format,
+    segments,
+    crop,
+    reframe,
+    filter: options.filter || 'none',
+    speed: num(options.speed, 'speed', 0.25, 4, 1),
+    rotation: num(options.rotation, 'rotation', -360, 360, 0),
+    straighten: num(options.straighten, 'straighten', -45, 45, 0),
+    perspectiveH: num(options.perspectiveH, 'perspectiveH', -45, 45, 0),
+    perspectiveV: num(options.perspectiveV, 'perspectiveV', -45, 45, 0),
+    muted: options.muted === true,
+    subtitles: validateSubtitles(options.subtitles),
+    quality,
+    resolution,
+    stabilize,
+    hardware,
+    gifWidth: Math.round(num(options.gifWidth, 'gifWidth', 64, 1920, 480)),
+    gifFps: Math.round(num(options.gifFps, 'gifFps', 1, 60, 15)),
+  }
+}
+
+/** Appends `.format` unless the path already ends with it. */
+function ensureExtension(filePath, format) {
+  return filePath.toLowerCase().endsWith(`.${format}`) ? filePath : `${filePath}.${format}`
+}
+
+/** Length of the exported video: kept parts, played at `speed`. */
+function expectedDuration(segments, speed) {
+  return segments.reduce((sum, s) => sum + (s.end - s.start), 0) / speed
+}
+
+// Encoder settings per quality level. CRF scales differ per codec; the GIF
+// palette trades colours and dithering noise (smaller files) for fidelity.
+const QUALITY = {
+  high:     { x264: 18, preset: 'fast',   vp9: 24, aac: '256k', gifColors: 256, gifDither: 'sierra2_4a', vtQ: 75, nvCq: 19, qsvQ: 20, vaapiQp: 20 },
+  balanced: { x264: 22, preset: 'fast',   vp9: 30, aac: '192k', gifColors: 256, gifDither: 'bayer:bayer_scale=3', vtQ: 60, nvCq: 24, qsvQ: 25, vaapiQp: 25 },
+  small:    { x264: 28, preset: 'medium', vp9: 37, aac: '128k', gifColors: 128, gifDither: 'bayer:bayer_scale=5', vtQ: 45, nvCq: 30, qsvQ: 31, vaapiQp: 31 },
+}
+
+/**
+ * The GIF palette pipeline. `stats_mode=diff` weights the palette towards what
+ * moves, and `diff_mode=rectangle` re-encodes only the changed area of each
+ * frame: both make the file smaller. The width is capped at the source's
+ * (never upscaled).
+ */
+function gifTail({ width = 480, fps = 15, quality = 'balanced' } = {}) {
+  const q = QUALITY[quality] || QUALITY.balanced
+  return `fps=${fps},scale='min(${width},iw)':-1:flags=lanczos,split[s0][s1];`
+    + `[s0]palettegen=max_colors=${q.gifColors}:stats_mode=diff[p];`
+    + `[s1][p]paletteuse=dither=${q.gifDither}:diff_mode=rectangle`
+}
+
+/**
+ * Hardware encoder profiles. `inputArgs` go before the input, `filter` is
+ * appended to the video chain (VAAPI needs frames uploaded to the GPU).
+ */
+const HARDWARE = {
+  videotoolbox: (q) => ({ inputArgs: [], filter: '', args: ['-c:v', 'h264_videotoolbox', '-q:v', String(q.vtQ), '-pix_fmt', 'yuv420p'] }),
+  nvenc: (q) => ({ inputArgs: [], filter: '', args: ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', String(q.nvCq), '-b:v', '0', '-pix_fmt', 'yuv420p'] }),
+  qsv: (q) => ({ inputArgs: [], filter: 'format=nv12', args: ['-c:v', 'h264_qsv', '-global_quality', String(q.qsvQ), '-preset', 'medium'] }),
+  vaapi: (q) => ({ inputArgs: ['-vaapi_device', '/dev/dri/renderD128'], filter: 'format=nv12,hwupload', args: ['-c:v', 'h264_vaapi', '-qp', String(q.vaapiQp)] }),
+}
+
+/** @returns {{ inputArgs: string[], filter: string, args: string[] }} */
+function hardwareProfile(id, quality = 'balanced') {
+  const make = HARDWARE[id]
+  if (!make) throw new Error(`Unknown hardware encoder: ${id}`)
+  return make(QUALITY[quality] || QUALITY.balanced)
+}
+
+/** Stabilisation strength → vidstab parameters (higher = smoother, more crop). */
+const STABILIZE = {
+  light:  { shakiness: 4, smoothing: 8 },
+  normal: { shakiness: 6, smoothing: 15 },
+  strong: { shakiness: 8, smoothing: 30 },
+}
+
+/**
+ * Pass 1 of stabilisation: the kept segments, joined, analysed by
+ * `vidstabdetect` which writes the motion data to `trf`. Video only.
+ * accuracy=15 is vid.stab's default; the macOS ffmpeg build writes motion data
+ * it cannot read back at accuracy=9 ("Cannot parse localmotion!").
+ */
+function buildDetectGraph({ segments, trf, level }) {
+  const { shakiness } = STABILIZE[level]
+  const parts = segments.map((s, i) => `[0:v]trim=start=${s.start.toFixed(3)}:end=${s.end.toFixed(3)},setpts=PTS-STARTPTS[v${i}]`)
+  parts.push(`${segments.map((_, i) => `[v${i}]`).join('')}concat=n=${segments.length}:v=1:a=0[vc]`)
+  parts.push(`[vc]vidstabdetect=shakiness=${shakiness}:accuracy=15:result=${escapeForFfmpegFilter(trf)}[vo]`)
+  return parts.join(';')
+}
+
+/** The filter that applies the motion data; runs first, on the original frames. */
+function stabilizeFilter({ trf, level }) {
+  const { smoothing } = STABILIZE[level]
+  // optzoom=1 picks a static zoom that hides most of the moving black borders.
+  return `vidstabtransform=input=${escapeForFfmpegFilter(trf)}:smoothing=${smoothing}:optzoom=1:interpol=bicubic`
+}
+
+/**
+ * One filter graph for the whole export: trim every kept segment, concat them,
+ * apply stabilisation, the geometry/colour/speed chain, and (for GIF) the
+ * palette pipeline. Doing it in a single pass avoids the encode → concat →
+ * re-encode round trip (two quality generations, a few ms of audio priming gap
+ * at each join).
+ *
+ * @param {{ segments: { start: number, end: number }[], videoChain: string[], speed: number, withAudio: boolean,
+ *   gif?: string|null, stabilize?: string|null, hardwareFilter?: string }} p
+ *   `gif`: the palette pipeline (see gifTail); `stabilize`: stabilizeFilter();
+ *   `hardwareFilter`: appended last (VAAPI upload)
+ */
+function buildFilterComplex({ segments, videoChain, speed, withAudio, gif = null, stabilize = null, hardwareFilter = '' }) {
+  const parts = []
+  segments.forEach((s, i) => {
+    const range = `start=${s.start.toFixed(3)}:end=${s.end.toFixed(3)}`
+    parts.push(`[0:v]trim=${range},setpts=PTS-STARTPTS[v${i}]`)
+    if (withAudio) parts.push(`[0:a]atrim=${range},asetpts=PTS-STARTPTS[a${i}]`)
+  })
+  const inputs = segments.map((_, i) => `[v${i}]${withAudio ? `[a${i}]` : ''}`).join('')
+  parts.push(`${inputs}concat=n=${segments.length}:v=1:a=${withAudio ? 1 : 0}[vc]${withAudio ? '[ac]' : ''}`)
+
+  let chain = [stabilize, ...videoChain].filter(Boolean).join(',')
+  if (gif) chain = `${chain},${gif}`
+  else if (hardwareFilter) chain = `${chain},${hardwareFilter}`
+  parts.push(`[vc]${chain}[vout]`)
+  if (withAudio) parts.push(speed === 1 ? '[ac]anull[aout]' : `[ac]atempo=${clampAtempo(speed)}[aout]`)
+  return parts.join(';')
+}
+
+function videoEncoder(format, quality, hardware) {
+  const q = QUALITY[quality] || QUALITY.balanced
+  if (format === 'gif') return []
+  if (format === 'webm') return ['-c:v', 'libvpx-vp9', '-crf', String(q.vp9), '-b:v', '0', '-row-mt', '1', '-deadline', 'good', '-cpu-used', '4', '-pix_fmt', 'yuv420p']
+  if (hardware) return hardwareProfile(hardware, quality).args
+  return ['-c:v', 'libx264', '-preset', q.preset, '-crf', String(q.x264), '-pix_fmt', 'yuv420p']
+}
+
+function audioEncoder(format, quality, { copy = false } = {}) {
+  const q = QUALITY[quality] || QUALITY.balanced
+  if (format === 'gif') return []
+  if (format === 'webm') return ['-c:a', 'libopus', '-b:a', '128k']
+  if (copy) return ['-c:a', 'copy']
+  return format === 'avi' ? ['-c:a', 'libmp3lame', '-b:a', q.aac] : ['-c:a', 'aac', '-b:a', q.aac]
+}
+
+const faststart = (format) => (format === 'mp4' || format === 'mov' ? ['-movflags', '+faststart'] : [])
+
+/** Hardware only applies to the H.264 containers (webm is VP9, gif has no video codec). */
+const usesHardware = (format, hardware) => !!hardware && (format === 'mp4' || format === 'mov' || format === 'avi')
+
+/**
+ * Settings for the (single, or first) pass that writes the final file, as argv
+ * entries. `hardware` is a profile id or null for the software encoder.
+ */
+/** @param {string} format @param {{ quality?: string, hardware?: string|null }} [o] @returns {string[]} */
+function finalOptions(format, { quality = 'balanced', hardware = null } = {}) {
+  const hw = usesHardware(format, hardware) ? hardware : null
+  return [...videoEncoder(format, quality, hw), ...audioEncoder(format, quality), ...faststart(format)]
+}
+
+/** Extra input arguments and chain filter the final encode needs for `hardware`. */
+/** @param {string} format @param {string|null} hardware @param {string} [quality] */
+function hardwareSetup(format, hardware, quality = 'balanced') {
+  if (!usesHardware(format, hardware)) return { inputArgs: [], filter: '' }
+  const { inputArgs, filter } = hardwareProfile(hardware, quality)
+  return { inputArgs, filter }
+}
+
+/** High-quality intermediate, only used when subtitles must be burned in. */
+const INTERMEDIATE_OPTIONS = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k']
+
+/** Second pass: burn subtitles into the intermediate and encode to `format`. */
+/** @param {string} format @param {string} subtitlesFilter @param {{ quality?: string, hardware?: string|null, gif?: string|null }} [o] */
+function burnOptions(format, subtitlesFilter, { quality = 'balanced', hardware = null, gif = null } = {}) {
+  const hw = usesHardware(format, hardware) ? hardware : null
+  let videoFilter = subtitlesFilter
+  if (format === 'gif') videoFilter = `${subtitlesFilter},${gif || gifTail({ quality })}`
+  else if (hw) videoFilter = [subtitlesFilter, hardwareProfile(hw, quality).filter].filter(Boolean).join(',')
+  return {
+    videoFilter,
+    inputArgs: hw ? hardwareProfile(hw, quality).inputArgs : [],
+    options: [...videoEncoder(format, quality, hw), ...audioEncoder(format, quality, { copy: format === 'mp4' || format === 'mov' }), ...faststart(format)],
+  }
+}
+
+/**
+ * Maps ffmpeg's progress onto the overall bar. `passIndex`/`passCount` slice
+ * the bar when the export needs two passes; the result never goes backwards.
+ */
+function createProgressTracker(send) {
+  let last = -1
+  return (passIndex, passCount, doneSeconds, totalSeconds) => {
+    const within = totalSeconds > 0 ? Math.min(1, Math.max(0, doneSeconds / totalSeconds)) : 0
+    // Keep 100 for the very end, when the file is really complete.
+    const pct = Math.min(99, Math.round(((passIndex + within) / passCount) * 100))
+    if (pct > last) {
+      last = pct
+      send(pct)
+    }
+  }
+}
+
+module.exports = {
+  FORMATS,
+  validateExportOptions,
+  ensureExtension,
+  expectedDuration,
+  QUALITIES,
+  STABILIZE_LEVELS,
+  HARDWARE_ENCODERS,
+  gifTail,
+  hardwareProfile,
+  hardwareSetup,
+  buildDetectGraph,
+  stabilizeFilter,
+  buildFilterComplex,
+  finalOptions,
+  burnOptions,
+  INTERMEDIATE_OPTIONS,
+  createProgressTracker,
+}
