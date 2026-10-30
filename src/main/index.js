@@ -144,7 +144,6 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: nativeTheme && !nativeTheme.shouldUseDarkColors ? '#f4f4f6' : '#0f0f0f',
     icon: path.join(__dirname, '../../assets/icon.png'),
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
