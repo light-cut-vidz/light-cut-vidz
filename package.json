@@ -1,6 +1,6 @@
 {
   "name": "lightcutvidz",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Lightweight video editor desktop app",
   "main": "src/main/index.js",
   "scripts": {
