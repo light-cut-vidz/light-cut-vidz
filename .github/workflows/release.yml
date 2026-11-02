@@ -1,0 +1,115 @@
+name: Release
+
+# Pushing a vX.Y.Z tag builds Linux (AppImage + deb) and macOS (arm64 zip) and
+# publishes them with SHA256SUMS. Run by hand with a tag to (re)build Linux
+# for an existing release: macOS is skipped unless `mac` is ticked.
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build, e.g. v1.0.1
+        required: true
+      mac:
+        description: Also build macOS
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Tag matches package.json
+        run: test "v$(node -p "require('./package.json').version")" = "$TAG"
+      - run: npm run vite:build
+      - run: npx electron-builder --linux AppImage deb --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            dist-app/LightCutVidz-linux.AppImage
+            dist-app/LightCutVidz-linux.deb
+            dist-app/latest-linux.yml
+
+  build-macos:
+    name: Build macOS (arm64)
+    if: github.event_name == 'push' || inputs.mac
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Tag matches package.json
+        run: test "v$(node -p "require('./package.json').version")" = "$TAG"
+      - run: npm run vite:build
+      - run: npx electron-builder --mac zip --arm64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist-app/LightCutVidz-mac-arm64.zip
+
+  publish:
+    name: Publish release
+    needs: [build-linux, build-macos]
+    if: ${{ !cancelled() && needs.build-linux.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.build-macos.result) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          path: new
+          merge-multiple: true
+      - name: Create the release if it does not exist yet
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            node scripts/release-notes.js "$TAG" > notes.md
+            gh release create "$TAG" --title "$TAG" --notes-file notes.md
+          fi
+      - name: Upload the new assets
+        run: gh release upload "$TAG" new/* --clobber
+      # SHA256SUMS lists every installable file of the release, including the
+      # ones uploaded by an earlier run (macOS when only Linux was rebuilt).
+      - name: Regenerate SHA256SUMS
+        run: |
+          mkdir all
+          gh release download "$TAG" --dir all \
+            --pattern 'LightCutVidz-linux.AppImage' \
+            --pattern 'LightCutVidz-linux.deb' \
+            --pattern 'LightCutVidz-mac-arm64.zip'
+          (cd all && sha256sum LightCutVidz-* > SHA256SUMS && cat SHA256SUMS)
+          gh release upload "$TAG" all/SHA256SUMS --clobber
