@@ -84,7 +84,6 @@ button {
 }
 
 /* Keyboard users need to see where focus is; mouse clicks do not trigger this. */
-button:focus-visible,
 input[type="range"]:focus-visible,
 select:focus-visible {
   outline: 2px solid var(--accent);
