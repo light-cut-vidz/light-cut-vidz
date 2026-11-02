@@ -50,10 +50,10 @@ describe('parameterised messages', () => {
     expect(typeof out).toBe('string')
   })
 
-  it.each(['en', 'fr'])('%s formats both versions into update_available_msg', (lang) => {
+  it.each(['en', 'fr'])('%s formats the new version, and only it, into update_available_msg', (lang) => {
     const out = translate(lang, 'update_available_msg', '1.5.0', '1.4.0')
     expect(out).toContain('1.5.0')
-    expect(out).toContain('1.4.0')
+    expect(out).not.toContain('1.4.0')
   })
 
   it.each(['en', 'fr'])('%s formats the version into no_update_msg_v', (lang) => {
